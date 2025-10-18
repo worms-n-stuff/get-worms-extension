@@ -1,6 +1,11 @@
-// background.js – service worker that owns auth flow for steps 1–2
-// Responsibilities now: generate state (nonce), store { pendingState, createdAt }, open login tab.
-// Later it will: accept session via content-script, set Supabase session, and serve queries.
+/**
+ * background.js – service worker that owns auth flow
+ * It does this by handling messages from popup and content-script.
+ * Responsibilities include:
+ * - Management of (creating, storing, sending, deleting) handshake
+ * - Management of (storing, retrieving) session
+ * and more.
+ */
 
 const LOGIN_ORIGIN = "https://get-worms.com"; // http://localhost:5173/
 const LOGIN_PATH = "";
