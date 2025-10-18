@@ -1,10 +1,29 @@
 {
-  "name": "Hello Extensions of the world!",
-  "description": "Base Level Extension",
-  "version": "1.0",
   "manifest_version": 3,
+  "name": "get worms",
+  "version": "1.0.0",
+  "description": "Leave a comment on any website with your get-worms account.",
   "action": {
-    "default_popup": "hello.html",
-    "default_icon": "hello_extensions.png"
-  }
+    "default_title": "get worms",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/worm-16.png",
+    "32": "icons/worm-32.png",
+    "48": "icons/worm-48.png",
+    "128": "icons/worm-128.png"
+  },
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://get-worms.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://get-worms.com/*", "http://localhost:5173/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_start"
+    }
+  ]
 }
