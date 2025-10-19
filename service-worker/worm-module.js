@@ -6,7 +6,7 @@ const KEY = "pw_enabled"; // global ON/OFF
 
 chrome.runtime.onInstalled.addListener(async () => {
   const { [KEY]: enabled } = await chrome.storage.sync.get(KEY);
-  if (enabled === undefined) await chrome.storage.sync.set({ [KEY]: true });
+  if (enabled === undefined) await chrome.storage.sync.set({ [KEY]: false });
 });
 
 chrome.tabs.onActivated.addListener(updateActionUI);

@@ -375,6 +375,12 @@ class PageWorms {
       }
     });
   }
+
+  clearScreen() {
+    for (const el of this.wormEls.values()) el.remove();
+    this.wormEls.clear();
+    this.worms = [];
+  }
 }
 
 /** Convenience bootstrap for drop-in usage */
