@@ -1,6 +1,6 @@
 /**
- * content-script.js – listens for window.postMessage from the login page,
- * verifies origin + type + nonce, and relays the session to the background.
+ * content-script/auth.js – listens for window.postMessage from the login page,
+ * verifies origin + type + nonce, and relays the session to the background service worker.
  */
 
 const TRUSTED_ORIGINS = new Set([

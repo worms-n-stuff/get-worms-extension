@@ -13,17 +13,28 @@
     "48": "icons/worm-48.png",
     "128": "icons/worm-128.png"
   },
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "activeTab", "scripting"],
   "host_permissions": ["https://get-worms.com/*"],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "service-worker/background.js",
     "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["https://get-worms.com/*", "http://localhost:5173/*"],
-      "js": ["content-script.js"],
+      "js": ["content-script/auth.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script/worm-module.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-worms/*.js"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

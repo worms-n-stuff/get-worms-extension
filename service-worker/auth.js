@@ -1,5 +1,5 @@
 /**
- * background.js – service worker that owns auth flow
+ * service-worker/auth.js – the auth flow
  * It does this by handling messages from popup and content-script.
  * Responsibilities include:
  * - Management of (creating, storing, sending, deleting) handshake
