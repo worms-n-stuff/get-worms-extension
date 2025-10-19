@@ -6,8 +6,7 @@
  *
  * Responsibilities:
  *   - init(): Bootstraps styles, storage load, observers, and initial render.
- *   - enableCapture()/disableCapture(): Toggle click-to-worm mode.
- *   - _onClick(): Create a worm; persist; render; LOG creation (no hover logs).
+ *   - addWorm(opts): Create a new worm at given click/selection.
  *   - renderAll(): Redraw all worms after DOM changes/resizes.
  *   - _resolve(anchor): Re-anchor via TextQuote -> selector -> tag+attrs -> body.
  *   - _observe(): Resize/scroll/mutation listeners with throttled rerender.
@@ -106,20 +105,6 @@ class PageWorms {
     this._initHostResizeObserver();
   }
 
-  enableCapture() {
-    if (this.captureEnabled) return;
-    this.captureEnabled = true;
-    document.body.style.cursor = DEFAULTS.captureCursor;
-    document.addEventListener("click", this._onClick, true);
-  }
-
-  disableCapture() {
-    if (!this.captureEnabled) return;
-    this.captureEnabled = false;
-    document.body.style.cursor = "";
-    document.removeEventListener("click", this._onClick, true);
-  }
-
   _logWormEvent(action, worm, extra = {}) {
     try {
       console.log("[PageWorms]", {
@@ -133,32 +118,16 @@ class PageWorms {
     } catch {}
   }
 
-  _onClick = async (ev) => {
-    if (ev.button !== 0) return; // left click only
-    if (ev.target?.classList?.contains(DEFAULTS.wormClass)) return; // ignore worm self-clicks
-
-    // Optional TextQuote anchor
-    let selection = null;
-    if (this.opts.enableSelection) {
-      const sel = window.getSelection?.();
-      if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
-        selection = sel.getRangeAt(0).cloneRange();
-      }
-    }
-
-    const target = selection
-      ? selection.commonAncestorContainer.nodeType === 1
-        ? selection.commonAncestorContainer
-        : selection.commonAncestorContainer.parentElement
-      : ev.target;
-
-    const anchor = this._makeAnchor({
-      target,
-      clickX: ev.clientX,
-      clickY: ev.clientY,
-      selection,
-    });
-
+  /**
+   * Programmatically add a worm using either a selection or a click point.
+   * @param {Object} opts
+   * @param {Element} opts.target - Element that received the context click (or selection ancestor)
+   * @param {number} opts.clickX - clientX for the anchor relBoxPct
+   * @param {number} opts.clickY - clientY for the anchor relBoxPct
+   * @param {Range|null} opts.selection - Optional selection range to create a TextQuote anchor
+   */
+  async addWorm({ target, clickX, clickY, selection = null }) {
+    const anchor = this._makeAnchor({ target, clickX, clickY, selection });
     const worm = {
       id: uuid(),
       created_at: new Date().toISOString(),
@@ -166,14 +135,12 @@ class PageWorms {
       algo: DEFAULTS.algoVersion,
       anchor,
     };
-
     this.worms.push(worm);
-    this._logWormEvent("create", worm);
+    this._logWormEvent("create", worm, { via: "contextmenu" });
     await this._persist();
     this._drawWorm(worm);
-    ev.preventDefault();
-    ev.stopPropagation();
-  };
+    return worm;
+  }
 
   async load() {
     this.worms = (await this.store.get(this.url)) || [];
@@ -219,6 +186,9 @@ class PageWorms {
   async renderAll() {
     this._isRendering = true;
     try {
+      // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
+      injectStyles();
+
       for (const el of this.wormEls.values()) el.remove();
       this.wormEls.clear();
       for (const worm of this.worms) this._drawWorm(worm);
@@ -228,6 +198,8 @@ class PageWorms {
   }
 
   _drawWorm(worm) {
+    injectStyles();
+
     const { hostEl } = this._resolve(worm.anchor);
     const host = hostEl || document.body;
 
@@ -377,9 +349,18 @@ class PageWorms {
   }
 
   clearScreen() {
+    // Remove the ones we know
     for (const el of this.wormEls.values()) el.remove();
     this.wormEls.clear();
     this.worms = [];
+
+    // Aggressive sweep
+    try {
+      document
+        .querySelectorAll(`.${DEFAULTS.wormClass}`)
+        .forEach((n) => n.remove());
+      document.querySelectorAll(`.pp-box`).forEach((n) => n.remove());
+    } catch {}
   }
 }
 

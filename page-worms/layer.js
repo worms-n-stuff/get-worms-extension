@@ -35,7 +35,6 @@ export function createWormEl() {
   el.type = "button";
   el.className = DEFAULTS.wormClass;
   el.setAttribute("aria-label", "Page Worm");
-  el.textContent = "●";
   return el;
 }
 

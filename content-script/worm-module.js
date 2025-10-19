@@ -1,21 +1,33 @@
 /**
- * content-script/worm-module.js - Handles on/off and initialization of the worms module
+ * content-script/worm-module.js
+ * Responsibilties:
+ * 1. Handles on/off and initialization of the worms module
+ * 2. Handles add new worm action (from context menu)
  */
 const KEY = "pw_enabled";
 let instance = null;
 let attachPageWorms = null;
 let alive = true;
+let lastContextClick = null;
 
 const wormsModuleUrl = chrome.runtime.getURL("page-worms/page-worms.js");
 const wormsReady = import(wormsModuleUrl).then((mod) => {
   attachPageWorms = mod.attachPageWorms;
 });
 
+/* -------------------------------------------------------------------------- */
+/*                            Init & On/Off Toggle                            */
+/* -------------------------------------------------------------------------- */
+
 // --- LIFECYCLE GUARDS -------------------------------------------------------
 
 function isContextAlive() {
   // When a content-script context is invalidated, runtime.id becomes undefined.
   return alive && !!(chrome?.runtime && chrome.runtime.id);
+}
+
+function onPopState() {
+  if (isContextAlive()) ensureState();
 }
 
 // Fires for normal unloads AND BFCache moves (with e.persisted info).
@@ -53,9 +65,6 @@ window.addEventListener("pageshow", onPageShow);
     queueMicrotask(() => isContextAlive() && ensureState());
     return r;
   };
-  function onPopState() {
-    if (isContextAlive()) ensureState();
-  }
   window.addEventListener("popstate", onPopState);
 })();
 
@@ -103,14 +112,76 @@ async function ensureState() {
   if (!isContextAlive()) return;
 
   if (enabled) {
-    instance.enableCapture();
     await instance.load();
     await instance.renderAll();
   } else {
-    instance.disableCapture();
     instance.clearScreen();
   }
 }
 
 // First run
 ensureState();
+
+/* -------------------------------------------------------------------------- */
+/*                                  Add Worm                                  */
+/* -------------------------------------------------------------------------- */
+// Track right-click coordinates
+window.addEventListener(
+  "contextmenu",
+  (e) => {
+    lastContextClick = { clientX: e.clientX, clientY: e.clientY };
+  },
+  { capture: true } // capture to observe before site handlers possibly stopPropagation
+);
+
+chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
+  if (msg?.type === "worms:add") {
+    void addWormFromContext();
+  }
+});
+
+async function addWormFromContext() {
+  if (!isContextAlive()) return;
+  await wormsReady;
+  if (!isContextAlive()) return;
+
+  if (!instance) {
+    instance = await attachPageWorms({
+      storage: "chrome",
+      enableSelection: true,
+      startCapture: false,
+    });
+    if (!isContextAlive()) return;
+  }
+
+  const enabled = await getToggleSafe();
+  if (!enabled) return; // respect the ON/OFF toggle
+
+  // Use the current DOM selection if any
+  const sel = window.getSelection?.();
+  const hasSelection = !!(sel && !sel.isCollapsed && sel.rangeCount > 0);
+  const selection = hasSelection ? sel.getRangeAt(0).cloneRange() : null;
+
+  // If we have a recorded right-click point, use it; otherwise fall back to center.
+  const point = lastContextClick || {
+    clientX: window.innerWidth / 2,
+    clientY: window.innerHeight / 2,
+  };
+
+  // Target element for the anchor (either from selection or from the click point)
+  const target = selection
+    ? (selection.commonAncestorContainer.nodeType === 1
+        ? selection.commonAncestorContainer
+        : selection.commonAncestorContainer.parentElement) || document.body
+    : document.elementFromPoint(point.clientX, point.clientY) || document.body;
+
+  await instance.addWorm({
+    target,
+    clickX: point.clientX,
+    clickY: point.clientY,
+    selection,
+  });
+
+  // re-render in case we need to refresh layout immediately
+  await instance.renderAll();
+}
