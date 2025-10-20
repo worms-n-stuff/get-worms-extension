@@ -187,10 +187,17 @@ class PageWorms {
 
   /** Remove all tracked worms and aggressively clear overlay artifacts. */
   clearScreen() {
+    // Cancel pending animation frames
+    if (this._raf) {
+      cancelAnimationFrame(this._raf);
+      this._raf = null;
+    }
+
     // Remove the ones we know
     for (const el of this.wormEls.values()) el.remove();
     this.wormEls.clear();
     this.worms = [];
+    this._hostByWorm.clear();
 
     // Aggressive sweep
     try {
@@ -423,8 +430,17 @@ class PageWorms {
 
   /** Apply a precomputed render plan, reusing DOM nodes and minimizing writes. */
   _applyPlan(plan) {
+    const activeIds = new Set(this.worms.map((w) => w.id));
+
     for (const item of plan) {
       const { worm, host, cannotContain, containerEl, xPct, yPct } = item;
+
+      // Guard against worms no longer present
+      if (!activeIds.has(worm.id)) {
+        this.wormEls.delete(worm.id);
+        this._hostByWorm.delete(worm.id);
+        continue;
+      }
 
       // (a) Reuse existing element or create if missing
       let wormEl = this.wormEls.get(worm.id);
@@ -474,6 +490,8 @@ class PageWorms {
         wormEl.dataset.t = t;
       }
     }
+
+    this._raf = null;
   }
 
   /** Render a single worm immediately (used for freshly created annotations). */
