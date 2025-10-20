@@ -8,7 +8,7 @@
  *   - init(): Bootstraps styles, storage load, observers, and initial render.
  *   - addWorm(opts): Create a new worm at given click/selection.
  *   - renderAll(): Redraw all worms after DOM changes/resizes.
- *   - _resolve(anchor): Re-anchor via TextQuote -> selector -> tag+attrs -> body.
+ *   - _resolve(position): Re-anchor via TextQuote -> selector -> tag+attrs -> body.
  *   - _observe(): Resize/scroll/mutation listeners with throttled rerender.
  *   - clearScreen(): Remove rendered worms and tear down DOM overlays.
  *   - destroy(): Cleanup listeners/observers and DOM artifacts.
@@ -27,17 +27,24 @@
  *
  * Data Model (per worm):
  *   {
- *     id, created_at, url, algo,
- *     anchor: {
+ *     id: number;
+ *     created_at: string;
+ *     updated_at: string | null;
+ *     content: string;
+ *     status: "private" | "friends" | "public";
+ *     tags: string[] | null;
+ *     author_id: number | null;
+ *     position: {
  *       dom: { selector },
  *       textQuote?: { exact, prefix, suffix },
  *       element: { tag, attrs, relBoxPct: { x, y } },
  *       fallback: { scrollPct }
- *     }
+ *     };
+ *     host_url: string;
  *   }
  */
 import { DEFAULTS } from "./constants.js";
-import { uuid, throttle } from "./utils.js";
+import { uuid, throttle, normalizeText, getCanonicalUrl } from "./utils.js";
 import {
   cssPath,
   findQuoteRange,
@@ -56,7 +63,7 @@ import {
   makePositioningContext,
   createOrUpdateBox,
 } from "./layer.js";
-import { getCanonicalUrl } from "./utils.js";
+import { WormUI } from "./ui.js";
 
 class PageWorms {
   /**
@@ -82,6 +89,13 @@ class PageWorms {
     this._hostByWorm = new Map(); // id -> resolved hostEl (for diffing)
     this._textCache = null; // { nodes, allText, stamp }
     this._raf = null;
+    this._idCounter = 0;
+    this._needsMigration = false;
+    this._ui = new WormUI({
+      getWormById: (id) => this._findWormById(id),
+      onEdit: (id, data) => this._handleEditFromUI(id, data),
+      onDelete: (id) => this._handleDeleteFromUI(id),
+    });
 
     this._onAnyScroll = () => {
       const root = document.documentElement;
@@ -183,6 +197,7 @@ class PageWorms {
 
     for (const el of this.wormEls.values()) el.remove();
     this.wormEls.clear();
+    this._ui.destroy();
   }
 
   /** Remove all tracked worms and aggressively clear overlay artifacts. */
@@ -198,6 +213,7 @@ class PageWorms {
     this.wormEls.clear();
     this.worms = [];
     this._hostByWorm.clear();
+    this._ui.reset();
 
     // Aggressive sweep
     try {
@@ -216,33 +232,157 @@ class PageWorms {
    * Programmatically add a worm using either a selection or a click point.
    * @param {Object} opts
    * @param {Element} opts.target - Element that received the context click (or selection ancestor)
-   * @param {number} opts.clickX - clientX for the anchor relBoxPct
-   * @param {number} opts.clickY - clientY for the anchor relBoxPct
+   * @param {number} opts.clickX - clientX for the position relBoxPct
+   * @param {number} opts.clickY - clientY for the position relBoxPct
    * @param {Range|null} opts.selection - Optional selection range to create a TextQuote anchor
    */
   async addWorm({ target, clickX, clickY, selection = null }) {
-    const anchor = this._makeAnchor({ target, clickX, clickY, selection });
+    const position = this._makePosition({ target, clickX, clickY, selection });
+    const formResult = await this._ui.promptCreate({
+      content: "",
+      tags: [],
+      status: "private",
+    });
+    if (!formResult) return null;
+
+    const now = new Date().toISOString();
     const worm = {
-      id: uuid(),
-      created_at: new Date().toISOString(),
-      url: this.url,
-      algo: DEFAULTS.algoVersion,
-      anchor,
+      id: this._generateId(),
+      created_at: now,
+      updated_at: null,
+      content: formResult.content || "",
+      status:
+        formResult.status === "friends" || formResult.status === "public"
+          ? formResult.status
+          : "private",
+      tags: formResult.tags && formResult.tags.length ? formResult.tags : null,
+      author_id: null,
+      position,
+      host_url: this.url,
     };
     this.worms.push(worm);
     this._logWormEvent("create", worm, { via: "contextmenu" });
     await this._persist();
     this._drawWorm(worm);
+    await this.renderAll();
+    await this._ui.openViewer(worm.id);
     return worm;
   }
 
   /** Load worms for the current canonical URL via the configured storage adapter. */
   async load() {
-    this.worms = (await this.store.get(this.url)) || [];
+    const raw = (await this.store.get(this.url)) || [];
+    this._idCounter = 0;
+    this._needsMigration = false;
+    this.worms = raw.map((w) => this._normalizeWorm(w));
+    if (this._needsMigration) await this._persist();
   }
   /** Persist the in-memory worm list for the current page. */
   async _persist() {
     await this.store.set(this.url, this.worms);
+  }
+
+  _generateId() {
+    this._idCounter += 1;
+    return this._idCounter;
+  }
+
+  _normalizeWorm(raw = {}) {
+    let changed = false;
+    let id = raw?.id;
+
+    if (typeof id === "number" && Number.isFinite(id)) {
+      this._idCounter = Math.max(this._idCounter, id);
+    } else if (typeof id === "string" && /^\d+$/.test(id)) {
+      id = Number(id);
+      this._idCounter = Math.max(this._idCounter, id);
+      changed = true;
+    } else {
+      id = this._generateId();
+      changed = true;
+    }
+
+    const created_at =
+      typeof raw?.created_at === "string"
+        ? raw.created_at
+        : new Date().toISOString();
+    if (created_at !== raw?.created_at) changed = true;
+
+    const updated_at =
+      raw?.updated_at === null || typeof raw?.updated_at === "string"
+        ? raw.updated_at
+        : null;
+    if (updated_at !== raw?.updated_at) changed = true;
+
+    let status = "private";
+    if (raw?.status === "friends" || raw?.status === "public") {
+      status = raw.status;
+    } else if (raw?.status === "private" || raw?.status === undefined) {
+      // ok
+    } else {
+      changed = true;
+    }
+
+    let tags = null;
+    if (Array.isArray(raw?.tags)) {
+      const normalizedTags = raw.tags
+        .map((t) => (typeof t === "string" ? t.trim() : ""))
+        .filter(Boolean);
+      if (normalizedTags.length) tags = normalizedTags;
+      if (
+        normalizedTags.length !== raw.tags.length ||
+        normalizedTags.some((t, idx) => t !== raw.tags[idx])
+      ) {
+        changed = true;
+      }
+    } else if (typeof raw?.tags === "string") {
+      const normalizedTags = raw.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      if (normalizedTags.length) tags = normalizedTags;
+      changed = true;
+    } else if (raw?.tags != null) {
+      changed = true;
+    }
+
+    const position = raw?.position ?? raw?.anchor ?? null;
+    if (!raw?.position && raw?.anchor) changed = true;
+
+    const author_id = typeof raw?.author_id === "number" ? raw.author_id : null;
+    if (author_id !== raw?.author_id) changed = true;
+
+    const host_url =
+      typeof raw?.host_url === "string" ? raw.host_url : raw?.url || this.url;
+    if (host_url !== raw?.host_url) changed = true;
+
+    const content = typeof raw?.content === "string" ? raw.content : "";
+    if (content !== raw?.content) changed = true;
+
+    if (typeof id !== "number" || !Number.isFinite(id)) {
+      id = this._generateId();
+      changed = true;
+    }
+
+    const worm = {
+      id,
+      created_at,
+      updated_at,
+      content,
+      status,
+      tags: tags ?? null,
+      author_id,
+      position,
+      host_url,
+    };
+
+    if (changed) this._needsMigration = true;
+    return worm;
+  }
+
+  _findWormById(id) {
+    if (typeof id !== "number" || !Number.isFinite(id)) return null;
+    return this.worms.find((w) => w.id === id) || null;
   }
 
   /** Console instrumentation helper for creation/render lifecycle events. */
@@ -253,7 +393,7 @@ class PageWorms {
         id: worm?.id,
         url: this?.url,
         created_at: worm?.created_at,
-        anchor: worm?.anchor, // includes dom, textQuote, relBoxPct, fallback scrollPct
+        position: worm?.position,
         ...extra,
       });
     } catch {}
@@ -263,8 +403,8 @@ class PageWorms {
   // ---------------------------------------------------------------------------
   // #region Anchoring Helpers
   // ---------------------------------------------------------------------------
-  /** Compose a resilient anchor from DOM target, click position, and optional selection. */
-  _makeAnchor({ target, clickX, clickY, selection }) {
+  /** Compose a resilient position anchor from DOM target, click point, and optional selection. */
+  _makePosition({ target, clickX, clickY, selection }) {
     const el = target?.nodeType === 1 ? target : target?.parentElement;
     const selector = el ? cssPath(el) : "";
 
@@ -299,16 +439,16 @@ class PageWorms {
   }
 
   /** Resolve a stored anchor back to a live host element using multiple fallbacks. */
-  _resolve(anchor) {
+  _resolve(position) {
     // 0) If both selector and textQuote, try to resolve selector and
     // verify it still contains the quote. If yes, use it as host.
-    if (anchor.dom?.selector && anchor.textQuote?.exact) {
+    if (position?.dom?.selector && position?.textQuote?.exact) {
       try {
-        const el = document.querySelector(anchor.dom.selector);
+        const el = document.querySelector(position.dom.selector);
         if (
           el &&
           normalizeText(el.innerText || "").includes(
-            normalizeText(anchor.textQuote.exact)
+            normalizeText(position.textQuote.exact)
           )
         ) {
           return { hostEl: el };
@@ -317,20 +457,20 @@ class PageWorms {
     }
 
     // 1) TextQuote
-    if (anchor.textQuote?.exact) {
+    if (position?.textQuote?.exact) {
       const range = findQuoteRange(
-        anchor.textQuote.exact,
-        anchor.textQuote.prefix,
-        anchor.textQuote.suffix,
+        position.textQuote.exact,
+        position.textQuote.prefix,
+        position.textQuote.suffix,
         this._textCache
       );
       if (range) {
         const rects = range.getClientRects();
         if (rects.length) {
           let hostEl = elementForRange(range);
-          if (hostEl === document.body && anchor.dom?.selector) {
+          if (hostEl === document.body && position.dom?.selector) {
             try {
-              const sEl = document.querySelector(anchor.dom.selector);
+              const sEl = document.querySelector(position.dom.selector);
               if (sEl) hostEl = sEl;
             } catch {}
           }
@@ -340,17 +480,17 @@ class PageWorms {
     }
     // 2) DOM selector
     let hostEl = null;
-    if (anchor.dom?.selector) {
+    if (position?.dom?.selector) {
       try {
-        hostEl = document.querySelector(anchor.dom.selector);
+        hostEl = document.querySelector(position.dom.selector);
       } catch {}
     }
     // 3) Tag + stable attrs
     if (!hostEl) {
-      const tag = anchor.element?.tag || null;
+      const tag = position?.element?.tag || null;
       if (tag) {
         const cands = Array.from(document.getElementsByTagName(tag));
-        const want = anchor.element?.attrs || {};
+        const want = position?.element?.attrs || {};
         hostEl =
           cands.find((el) =>
             Object.keys(want).every(
@@ -362,6 +502,47 @@ class PageWorms {
     // 4) Fallback
     if (!hostEl) hostEl = document.body;
     return { hostEl };
+  }
+
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region UI Delegates
+  // ---------------------------------------------------------------------------
+
+  async _handleEditFromUI(wormId, payload) {
+    const worm = this._findWormById(wormId);
+    if (!worm) return null;
+
+    worm.content = payload?.content || "";
+    worm.tags =
+      Array.isArray(payload?.tags) && payload.tags.length ? payload.tags : null;
+    worm.status =
+      payload?.status === "friends" || payload?.status === "public"
+        ? payload.status
+        : "private";
+    worm.updated_at = new Date().toISOString();
+
+    await this._persist();
+    this._logWormEvent("update", worm, { via: "ui" });
+    await this.renderAll();
+    return worm;
+  }
+
+  async _handleDeleteFromUI(wormId) {
+    const worm = this._findWormById(wormId);
+    if (!worm) return;
+
+    this.worms = this.worms.filter((w) => w.id !== wormId);
+    const el = this.wormEls.get(wormId);
+    if (el) {
+      el.remove();
+      this.wormEls.delete(wormId);
+    }
+    this._hostByWorm.delete(wormId);
+
+    await this._persist();
+    this._logWormEvent("delete", worm, { via: "ui" });
+    await this.renderAll();
   }
 
   // #endregion
@@ -399,7 +580,7 @@ class PageWorms {
 
       // For current worms, resolve hosts and compute placement
       for (const worm of this.worms) {
-        const { hostEl } = this._resolve(worm.anchor /*, this._textCache*/);
+        const { hostEl } = this._resolve(worm.position /*, this._textCache*/);
         const host = hostEl || document.body;
 
         // Decide container (can host children or not)
@@ -414,8 +595,8 @@ class PageWorms {
         makePositioningContext(containerEl);
 
         // If we need a box overlay, compute (reads); created in write phase
-        const xPct = (worm.anchor.element?.relBoxPct?.x ?? 0.5) * 100;
-        const yPct = (worm.anchor.element?.relBoxPct?.y ?? 0.5) * 100;
+        const xPct = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
+        const yPct = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
 
         plan.push({ worm, host, cannotContain, containerEl, xPct, yPct });
       }
@@ -489,6 +670,8 @@ class PageWorms {
         wormEl.style.top = t + "%";
         wormEl.dataset.t = t;
       }
+
+      this._ui.wireWormElement(wormEl);
     }
 
     this._raf = null;
@@ -498,7 +681,7 @@ class PageWorms {
   _drawWorm(worm) {
     injectStyles();
 
-    const { hostEl } = this._resolve(worm.anchor);
+    const { hostEl } = this._resolve(worm.position);
     const host = hostEl || document.body;
 
     // Container choice
@@ -519,18 +702,20 @@ class PageWorms {
     const wormEl = createWormEl();
     wormEl.dataset.wormId = worm.id;
 
-    const x = (worm.anchor.element?.relBoxPct?.x ?? 0.5) * 100;
-    const y = (worm.anchor.element?.relBoxPct?.y ?? 0.5) * 100;
+    const x = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
+    const y = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
     wormEl.style.left = x + "%";
     wormEl.style.top = y + "%";
 
     (cannotContain ? box : containerEl).appendChild(wormEl);
     this.wormEls.set(worm.id, wormEl);
+    this._ui.wireWormElement(wormEl);
 
     // Observe host for cheap overlay resync
     this._initHostResizeObserver?.();
     if (this._hostRO && cannotContain) this._hostRO.observe(host);
   }
+  //#endregion
 }
 
 /** Convenience bootstrap for drop-in usage */
