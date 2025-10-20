@@ -6,10 +6,11 @@
  */
 const KEY = "pw_enabled"; // global ON/OFF
 const MENU_ID_ADD_WORM = "worms:add";
+const MENU_CONTEXTS = ["page", "selection", "image", "link", "video", "audio"];
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const { [KEY]: enabled } = await chrome.storage.sync.get(KEY);
-  if (enabled === undefined) await chrome.storage.sync.set({ [KEY]: false });
+  await ensureToggleDefault();
+  createContextMenu();
 });
 
 chrome.tabs.onActivated.addListener(updateActionUI);
@@ -34,29 +35,24 @@ async function updateActionUI() {
 }
 
 // ---- Context Menu: "Add Worm" -----------------------------------------
-// add context menu item
-chrome.runtime.onInstalled.addListener(async () => {
+async function ensureToggleDefault() {
+  const { [KEY]: enabled } = await chrome.storage.sync.get(KEY);
+  if (enabled === undefined) await chrome.storage.sync.set({ [KEY]: false });
+}
+
+function createContextMenu() {
   try {
     chrome.contextMenus.create({
       id: MENU_ID_ADD_WORM,
       title: "Add Worm",
-      contexts: ["page", "selection", "image", "link", "video", "audio"],
+      contexts: MENU_CONTEXTS,
     });
-  } catch (e) {
+  } catch {
     // Ignore "already exists" errors on reloads
   }
-});
+}
 
-// recreate context menu item on startup
-chrome.runtime.onStartup?.addListener(() => {
-  try {
-    chrome.contextMenus.create({
-      id: MENU_ID_ADD_WORM,
-      title: "Add Worm",
-      contexts: ["page", "selection", "image", "link", "video", "audio"],
-    });
-  } catch {}
-});
+chrome.runtime.onStartup?.addListener(createContextMenu);
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== MENU_ID_ADD_WORM) return;

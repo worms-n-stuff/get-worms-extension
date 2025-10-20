@@ -46,6 +46,7 @@ export class WormUI {
 
   wireWormElement(el) {
     if (!el || el.dataset.pwWired === "1") return;
+    el.dataset.pwOwned = "1";
     el.dataset.pwWired = "1";
     el.addEventListener("mouseenter", this._handleEnter);
     el.addEventListener("mouseleave", this._handleLeave);
@@ -107,6 +108,12 @@ export class WormUI {
     document.removeEventListener("keydown", this._handleModalKeydown, true);
   }
 
+  _returnToViewer(wormId) {
+    if (wormId == null) return;
+    const worm = this._getWormById?.(wormId);
+    if (worm) void this.openViewer(wormId);
+  }
+
   async promptCreate(initial = {}) {
     const result = await this._openForm({
       mode: "create",
@@ -142,6 +149,7 @@ export class WormUI {
   _ensureTooltip() {
     if (this._tooltipEl) return;
     const tooltip = createTooltip();
+    tooltip.dataset.pwOwned = "1";
     tooltip.addEventListener("mouseenter", () => this._cancelTooltipHide());
     tooltip.addEventListener("mouseleave", () => this.hideTooltip());
     const expandBtn = tooltip.querySelector(".pw-tooltip__expand");
@@ -272,6 +280,8 @@ export class WormUI {
   _ensureBackdrop() {
     if (this._backdropEl && this._windowEl) return;
     const { backdrop, windowEl } = createBackdrop();
+    backdrop.dataset.pwOwned = "1";
+    if (windowEl) windowEl.dataset.pwOwned = "1";
     backdrop.addEventListener("click", this._handleBackdropClick);
     windowEl.addEventListener("click", this._handleModalClick);
     windowEl.addEventListener("submit", this._handleModalSubmit);
@@ -311,10 +321,7 @@ export class WormUI {
     const state = this._state;
     this._resolveForm(null);
     this.closeModal();
-    if (state?.mode === "form" && state.wormId != null) {
-      const worm = this._getWormById?.(state.wormId);
-      if (worm) void this.openViewer(state.wormId);
-    }
+    if (state?.mode === "form") this._returnToViewer(state?.wormId ?? null);
   }
 
   _handleModalClick(e) {
@@ -332,19 +339,13 @@ export class WormUI {
       case "close": {
         this._resolveForm(null);
         this.closeModal();
-        if (state?.mode === "form" && wormId != null) {
-          const worm = this._getWormById?.(wormId);
-          if (worm) void this.openViewer(wormId);
-        }
+        if (state?.mode === "form") this._returnToViewer(wormId);
         break;
       }
       case "cancel": {
         this._resolveForm(null);
         this.closeModal();
-        if (wormId != null) {
-          const worm = this._getWormById?.(wormId);
-          if (worm) void this.openViewer(wormId);
-        }
+        this._returnToViewer(wormId);
         break;
       }
       case "edit": {
@@ -392,10 +393,7 @@ export class WormUI {
     const state = this._state;
     this._resolveForm(null);
     this.closeModal();
-    if (state?.mode === "form" && state.wormId != null) {
-      const worm = this._getWormById?.(state.wormId);
-      if (worm) void this.openViewer(state.wormId);
-    }
+    if (state?.mode === "form") this._returnToViewer(state?.wormId ?? null);
   }
 
   async _beginEdit(wormId) {
@@ -403,9 +401,7 @@ export class WormUI {
     if (!worm) return;
     const result = await this._openForm({ mode: "edit", worm });
     if (!result) {
-      if (this._getWormById?.(wormId)) {
-        void this.openViewer(wormId);
-      }
+      this._returnToViewer(wormId);
       return;
     }
     try {

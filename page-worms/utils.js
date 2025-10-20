@@ -16,10 +16,18 @@
 
 /** RFC4122 v4 UUID using crypto.randomUUID when available (fallback to manual entropy). */
 export function uuid() {
-  const c = globalThis.crypto || window.crypto;
-  if (c?.randomUUID) return c.randomUUID();
+  const cryptoObj = typeof globalThis.crypto !== "undefined" ? globalThis.crypto : undefined;
+  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
+  if (!cryptoObj?.getRandomValues) {
+    const template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
+    return template.replace(/[xy]/g, (ch) => {
+      const r = Math.random() * 16;
+      const v = ch === "x" ? r : (r & 0x3) | 0x8;
+      return Math.floor(v).toString(16);
+    });
+  }
   const buf = new Uint8Array(16);
-  c.getRandomValues(buf);
+  cryptoObj.getRandomValues(buf);
   buf[6] = (buf[6] & 0x0f) | 0x40;
   buf[8] = (buf[8] & 0x3f) | 0x80;
   const hex = [...buf].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -50,7 +58,11 @@ export function throttle(fn, ms) {
 
 /** Normalize text for anchoring: NFC transform plus whitespace collapsing. */
 export const normalizeText = (s) =>
-  s.normalize("NFC").replace(/\s+/g, " ").trim();
+  (s ?? "")
+    .toString()
+    .normalize("NFC")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /** Canonicalize URL for storage keys (strip query, preserve path + hash). */
 export function getCanonicalUrl() {

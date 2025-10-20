@@ -5,7 +5,7 @@
  */
 
 const tooltipMarkup = `
-<div class="pw-tooltip" role="tooltip" hidden data-worm-id="">
+<div class="pw-tooltip" role="tooltip" hidden data-worm-id="" data-pw-owned="">
   <div class="pw-tooltip__content pw-tooltip__content--empty">No comment yet.</div>
   <div class="pw-tooltip__tags" hidden></div>
   <div class="pw-tooltip__actions">
@@ -15,13 +15,13 @@ const tooltipMarkup = `
 `;
 
 const backdropMarkup = `
-<div class="pw-modal-backdrop" aria-hidden="true" hidden>
+<div class="pw-modal-backdrop" aria-hidden="true" hidden data-pw-owned="">
   <div class="pw-modal-window" role="dialog" aria-modal="true" data-mode="" data-worm-id=""></div>
 </div>
 `;
 
 const modalViewMarkup = `
-<div class="pw-modal">
+<div class="pw-modal" data-pw-owned="">
   <header class="pw-modal__header">
     <h2 class="pw-modal__title">Worm Details</h2>
     <button type="button" class="pw-btn pw-btn--icon pw-modal__close" data-pw-action="close" aria-label="Close worm details">X</button>
@@ -50,7 +50,7 @@ const modalViewMarkup = `
 `;
 
 const modalFormMarkup = `
-<form class="pw-modal pw-modal--form">
+<form class="pw-modal pw-modal--form" data-pw-owned="">
   <header class="pw-modal__header">
     <h2 class="pw-modal__title">Edit Worm</h2>
     <button type="button" class="pw-btn pw-btn--icon pw-modal__close" data-pw-action="cancel" aria-label="Cancel worm edit">X</button>

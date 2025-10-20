@@ -94,28 +94,35 @@ async function getToggleSafe() {
 
 // --- MAIN STATE MACHINE -----------------------------------------------------
 
-async function ensureState() {
-  if (!isContextAlive()) return;
+async function ensureInstanceReady() {
+  if (!isContextAlive()) return null;
   await wormsReady;
-  if (!isContextAlive()) return;
+  if (!isContextAlive()) return null;
 
   if (!instance) {
-    instance = await attachPageWorms({
+    const created = await attachPageWorms({
       storage: "chrome",
       enableSelection: true,
-      startCapture: false, // apply explicitly below
     });
-    if (!isContextAlive()) return;
+    if (!isContextAlive()) return null;
+    instance = created;
   }
+  return instance;
+}
+
+async function ensureState() {
+  const inst = await ensureInstanceReady();
+  if (!inst) return;
 
   const enabled = await getToggleSafe();
   if (!isContextAlive()) return;
 
   if (enabled) {
-    await instance.load();
-    await instance.renderAll();
+    await inst.load();
+    if (!isContextAlive()) return;
+    await inst.renderAll();
   } else {
-    instance.clearScreen();
+    inst.clearScreen();
   }
 }
 
@@ -141,21 +148,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
 });
 
 async function addWormFromContext() {
-  if (!isContextAlive()) return;
-  await wormsReady;
-  if (!isContextAlive()) return;
-
-  if (!instance) {
-    instance = await attachPageWorms({
-      storage: "chrome",
-      enableSelection: true,
-      startCapture: false,
-    });
-    if (!isContextAlive()) return;
-  }
+  const inst = await ensureInstanceReady();
+  if (!inst) return;
 
   const enabled = await getToggleSafe();
-  if (!enabled) return; // respect the ON/OFF toggle
+  if (!enabled || !isContextAlive()) return; // respect the ON/OFF toggle
 
   // Use the current DOM selection if any
   const sel = window.getSelection?.();
@@ -175,13 +172,10 @@ async function addWormFromContext() {
         : selection.commonAncestorContainer.parentElement) || document.body
     : document.elementFromPoint(point.clientX, point.clientY) || document.body;
 
-  await instance.addWorm({
+  await inst.addWorm({
     target,
     clickX: point.clientX,
     clickY: point.clientY,
     selection,
   });
-
-  // re-render in case we need to refresh layout immediately
-  await instance.renderAll();
 }

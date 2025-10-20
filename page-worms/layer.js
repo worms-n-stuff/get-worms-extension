@@ -2,10 +2,9 @@
  * layer.js
  * -----------------------------------------------------------------------------
  * Purpose:
- *   DOM primitives for the overlay layer, worms, and host-aligned box elements.
+ *   DOM primitives for worm elements and host-aligned overlay boxes.
  *
  * Responsibilities:
- *   - ensureLayer(): Create/get the root overlay container (ignored by MO).
  *   - createWormEl(): Construct a basic worm button (unstyled logic-wise).
  *   - makePositioningContext(el): Ensure "position: relative" on containers.
  *   - createOrUpdateBox(container, host, idGen): Align a box to host bounds.
@@ -16,25 +15,13 @@
 
 import { DEFAULTS } from "./constants.js";
 
-/** Ensure the shared overlay layer exists (and mark it to ignore observers). */
-export function ensureLayer() {
-  let layer = document.getElementById("pp-layer");
-  if (!layer) {
-    layer = document.createElement("div");
-    layer.id = "pp-layer";
-    layer.setAttribute("data-pp-layer", "");
-    layer.style.position = "relative";
-    document.body.appendChild(layer);
-  }
-  return layer;
-}
-
 /** Build the base worm button element with class + aria labelling. */
 export function createWormEl() {
   const el = document.createElement("button");
   el.type = "button";
   el.className = DEFAULTS.wormClass;
   el.setAttribute("aria-label", "Page Worm");
+  el.dataset.pwOwned = "1";
   return el;
 }
 
@@ -42,7 +29,6 @@ export function createWormEl() {
 export function makePositioningContext(containerEl) {
   const cs = getComputedStyle(containerEl);
   if (cs.position === "static") {
-    containerEl.dataset.ppOldPosition = "static";
     containerEl.style.position = "relative";
     return true;
   }
@@ -60,6 +46,7 @@ export function createOrUpdateBox(containerEl, hostEl, idGen) {
     box.dataset.for = id;
     containerEl.appendChild(box);
   }
+  box.dataset.pwOwned = "1";
   const left = hostEl.offsetLeft,
     top = hostEl.offsetTop,
     w = hostEl.offsetWidth,

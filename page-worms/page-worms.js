@@ -57,13 +57,10 @@ import {
 } from "./dom-anchors.js";
 import { injectStyles } from "./styles.js";
 import { LocalStorageAdapter, ChromeStorageAdapter } from "./storage.js";
-import {
-  ensureLayer,
-  createWormEl,
-  makePositioningContext,
-  createOrUpdateBox,
-} from "./layer.js";
+import { createWormEl, makePositioningContext, createOrUpdateBox } from "./layer.js";
 import { WormUI } from "./ui.js";
+
+const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
 
 class PageWorms {
   /**
@@ -76,7 +73,6 @@ class PageWorms {
   // ---------------------------------------------------------------------------
   constructor(opts = {}) {
     injectStyles();
-    this._layer = null;
     this._isRendering = false;
     this.opts = { enableSelection: true, ...opts };
     this.url = getCanonicalUrl();
@@ -121,7 +117,6 @@ class PageWorms {
    * Initialize the overlay layer, hydrate persisted worms, and start observers.
    */
   async init() {
-    this._layer = ensureLayer();
     await this.load();
     this._observe();
     this.renderAll();
@@ -146,23 +141,27 @@ class PageWorms {
 
     this._mutObs = new MutationObserver((entries) => {
       if (this._isRendering) return;
-      for (const m of entries) {
+      for (const record of entries) {
         if (
-          this._layer &&
-          (this._layer.contains(m.target) ||
-            [...m.addedNodes].some(
-              (n) => n.nodeType === 1 && this._layer.contains(n)
-            ) ||
-            [...m.removedNodes].some(
-              (n) => n.nodeType === 1 && this._layer.contains(n)
-            ))
-        )
+          this._isManagedNode(record.target) ||
+          [...record.addedNodes].some((node) => this._isManagedNode(node)) ||
+          [...record.removedNodes].some((node) => this._isManagedNode(node))
+        ) {
           continue;
+        }
         this._reposition();
         break;
       }
     });
     this._mutObs.observe(document.body, { childList: true, subtree: true });
+  }
+
+  /** Returns true when a mutation target belongs to PageWorms-managed UI. */
+  _isManagedNode(node) {
+    if (!node) return false;
+    let el = node;
+    if (el.nodeType !== 1) el = el.parentElement;
+    return !!(el && typeof el.closest === "function" && el.closest(OWNED_SELECTOR));
   }
 
   /** Lazily create a ResizeObserver that keeps overlay boxes in sync. */
