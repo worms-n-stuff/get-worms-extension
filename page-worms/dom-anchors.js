@@ -55,17 +55,28 @@ export function cssPath(el) {
 
 /** Stream of visible text nodes, with global offsets. */
 export function textContentStream(root = document.body) {
+  /** Exclude non visible elements. Includes:
+   * - Display none or hidden
+   * - not in layout flow (e.g. width/height 0)
+   */
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    return el.getClientRects().length > 0;
+  }
+
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) => {
       const p = n.parentElement;
       if (!p) return NodeFilter.FILTER_REJECT;
       if (p.matches?.("script,style,noscript,template"))
         return NodeFilter.FILTER_REJECT;
-      return /\S/.test(n.nodeValue)
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_REJECT;
+      if (!/\S/.test(n.nodeValue)) return NodeFilter.FILTER_REJECT;
+      return isVisible(p) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     },
   });
+
   const nodes = [];
   let total = 0,
     node;
@@ -79,22 +90,73 @@ export function textContentStream(root = document.body) {
 }
 
 /** Best-effort TextQuote re-anchoring to DOM Range. */
-export function findQuoteRange(exact, prefix, suffix) {
-  const allText = normalizeText(document.body.innerText || "");
-  const exactNorm = normalizeText(exact || "");
-  if (!exactNorm) return null;
+export function findQuoteRange(exact, prefix, suffix, cached) {
+  /**
+   * Find the best matching range for a quote in the text.
+   * @param {string} allText
+   * @param {string} exact
+   * @param {string} prefix
+   * @param {string} suffix
+   * @returns {number}
+   */
+  function findBestMatch(allText, exact, prefix = "", suffix = "") {
+    /**
+     * Count matching characters between two strings, either from the start or end.
+     * @param {string} a
+     * @param {string} b
+     * @param {boolean} [fromEnd=false] - If true, compare from the end (suffix).
+     * @returns {number} Number of matching characters.
+     */
+    function commonOverlapLen(a, b, fromEnd = false) {
+      const len = Math.min(a.length, b.length);
+      let i = 0;
+      while (i < len) {
+        const ai = fromEnd ? a.charCodeAt(a.length - 1 - i) : a.charCodeAt(i);
+        const bi = fromEnd ? b.charCodeAt(b.length - 1 - i) : b.charCodeAt(i);
+        if (ai !== bi) break;
+        i++;
+      }
+      return i;
+    }
 
-  const startIdx = allText.indexOf(exactNorm);
+    const hits = [];
+    let idx = -1,
+      from = 0;
+    while ((idx = allText.indexOf(exact, from)) !== -1) {
+      // score by how well prefix matches the preceding context
+      const pre = allText.slice(Math.max(0, idx - prefix.length), idx);
+      const suf = allText.slice(
+        idx + exact.length,
+        idx + exact.length + suffix.length
+      );
+      let score = 1;
+      if (prefix) score += commonOverlapLen(pre, prefix); // how much of the wanted prefix matches
+      if (suffix) score += commonOverlapLen(suf, suffix); // how much of the wanted suffix matches
+      hits.push({ idx, score });
+      from = idx + 1;
+    }
+    hits.sort((a, b) => b.score - a.score);
+    return hits[0]?.idx ?? -1;
+  }
+
+  if (!exact) return null;
+  const nodes = cached?.nodes ?? textContentStream(document.body).nodes;
+  const exactNorm = normalizeText(exact);
+
+  // Build the same corpus we will map back onto
+  const allText = cached?.allText ?? nodes.map((n) => n.text).join("");
+
+  const startIdx = findBestMatch(allText, exactNorm, prefix, suffix);
   if (startIdx === -1) return null;
   const endIdx = startIdx + exactNorm.length;
 
-  const { nodes } = textContentStream(document.body);
   const range = document.createRange();
   let sNode = null,
     sOffset = 0,
     eNode = null,
     eOffset = 0;
 
+  // Map offsets → DOM Range
   for (const seg of nodes) {
     if (sNode == null && startIdx >= seg.start && startIdx <= seg.end) {
       sNode = seg.node;

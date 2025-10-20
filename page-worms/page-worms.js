@@ -46,6 +46,7 @@ import {
   stableAttrs,
   elementForRange,
   docScrollPct,
+  textContentStream,
 } from "./dom-anchors.js";
 import { injectStyles } from "./styles.js";
 import { LocalStorageAdapter, ChromeStorageAdapter } from "./storage.js";
@@ -76,6 +77,9 @@ class PageWorms {
     this._mutObs = null;
     this._hostRO = null;
     this._scrollTimer = null;
+    this._hostByWorm = new Map(); // id -> resolved hostEl (for diffing)
+    this._textCache = null; // { nodes, allText, stamp }
+    this._raf = null;
 
     this._onAnyScroll = () => {
       const root = document.documentElement;
@@ -183,15 +187,113 @@ class PageWorms {
     };
   }
 
+  _buildTextCache() {
+    const { nodes } = textContentStream(document.body);
+    const allText = nodes.map((n) => n.text).join("");
+    this._textCache = { nodes, allText, stamp: performance.now() };
+  }
+
+  _applyPlan(plan) {
+    for (const item of plan) {
+      const { worm, host, cannotContain, containerEl, xPct, yPct } = item;
+
+      // (a) Reuse existing element or create if missing
+      let wormEl = this.wormEls.get(worm.id);
+      if (!wormEl) {
+        wormEl = createWormEl(); // already sets class, aria-label
+        wormEl.dataset.wormId = worm.id;
+        this.wormEls.set(worm.id, wormEl);
+      }
+
+      // (b) Determine the final parent for this wormEl
+      let parentEl = containerEl;
+      let box = null;
+      if (cannotContain) {
+        // Create/update overlay box aligned to host (write)
+        box = createOrUpdateBox(containerEl, host, uuid);
+        parentEl = box;
+        // Make sure host resize observer watches this host (cheap)
+        this._initHostResizeObserver?.();
+        if (this._hostRO) this._hostRO.observe(host);
+      }
+
+      // (c) If host changed, reparent; else leave it alone
+      const prevHost = this._hostByWorm.get(worm.id);
+      if (prevHost !== host) {
+        if (wormEl.parentElement !== parentEl) {
+          parentEl.appendChild(wormEl);
+        }
+        this._hostByWorm.set(worm.id, host);
+      } else {
+        // Host same; parent might still differ (e.g., box recreated)
+        if (wormEl.parentElement !== parentEl) {
+          parentEl.appendChild(wormEl);
+        }
+      }
+
+      // (d) Only write style when the value actually changed (avoids layout work)
+      const prevL = wormEl.dataset.l,
+        prevT = wormEl.dataset.t;
+      const l = String(xPct),
+        t = String(yPct);
+      if (prevL !== l) {
+        wormEl.style.left = l + "%";
+        wormEl.dataset.l = l;
+      }
+      if (prevT !== t) {
+        wormEl.style.top = t + "%";
+        wormEl.dataset.t = t;
+      }
+    }
+  }
+
   async renderAll() {
     this._isRendering = true;
     try {
       // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
       injectStyles();
+      // build text cache per render
+      this._buildTextCache();
 
-      for (const el of this.wormEls.values()) el.remove();
-      this.wormEls.clear();
-      for (const worm of this.worms) this._drawWorm(worm);
+      // Phase A: build a plan (reads)
+      const plan = [];
+      const nextIds = new Set(this.worms.map((w) => w.id));
+
+      // Remove stale elements (ids no longer present)
+      for (const [id, el] of this.wormEls) {
+        if (!nextIds.has(id)) {
+          el.remove();
+          this.wormEls.delete(id);
+          this._hostByWorm.delete(id);
+        }
+      }
+
+      // For current worms, resolve hosts and compute placement
+      for (const worm of this.worms) {
+        const { hostEl } = this._resolve(worm.anchor /*, this._textCache*/);
+        const host = hostEl || document.body;
+
+        // Decide container (can host children or not)
+        const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(
+          host.tagName
+        );
+        const containerEl = cannotContain
+          ? host.parentElement || document.body
+          : host;
+
+        // Ensure positioning context (read ok)
+        makePositioningContext(containerEl);
+
+        // If we need a box overlay, compute (reads); created in write phase
+        const xPct = (worm.anchor.element?.relBoxPct?.x ?? 0.5) * 100;
+        const yPct = (worm.anchor.element?.relBoxPct?.y ?? 0.5) * 100;
+
+        plan.push({ worm, host, cannotContain, containerEl, xPct, yPct });
+      }
+
+      // Phase B: apply the plan (writes in a single rAF)
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = requestAnimationFrame(() => this._applyPlan(plan));
     } finally {
       this._isRendering = false;
     }
@@ -235,12 +337,29 @@ class PageWorms {
   }
 
   _resolve(anchor) {
+    // 0) If both selector and textQuote, try to resolve selector and
+    // verify it still contains the quote. If yes, use it as host.
+    if (anchor.dom?.selector && anchor.textQuote?.exact) {
+      try {
+        const el = document.querySelector(anchor.dom.selector);
+        if (
+          el &&
+          normalizeText(el.innerText || "").includes(
+            normalizeText(anchor.textQuote.exact)
+          )
+        ) {
+          return { hostEl: el };
+        }
+      } catch {}
+    }
+
     // 1) TextQuote
     if (anchor.textQuote?.exact) {
       const range = findQuoteRange(
         anchor.textQuote.exact,
         anchor.textQuote.prefix,
-        anchor.textQuote.suffix
+        anchor.textQuote.suffix,
+        this._textCache
       );
       if (range) {
         const rects = range.getClientRects();
@@ -283,7 +402,10 @@ class PageWorms {
   }
 
   _observe() {
-    this._reposition = throttle(() => this.renderAll(), DEFAULTS.throttleMs);
+    this._reposition = throttle(() => {
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = requestAnimationFrame(() => this.renderAll());
+    }, DEFAULTS.throttleMs);
 
     window.addEventListener("resize", this._reposition);
     window.addEventListener("scroll", this._onAnyScroll, {

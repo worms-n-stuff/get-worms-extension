@@ -33,12 +33,13 @@ async function updateActionUI() {
   });
 }
 
-// ---- Context Menu: "Add Worm here" -----------------------------------------
+// ---- Context Menu: "Add Worm" -----------------------------------------
+// add context menu item
 chrome.runtime.onInstalled.addListener(async () => {
   try {
     chrome.contextMenus.create({
       id: MENU_ID_ADD_WORM,
-      title: "Add Worm here",
+      title: "Add Worm",
       contexts: ["page", "selection", "image", "link", "video", "audio"],
     });
   } catch (e) {
@@ -46,12 +47,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-// Also recreate on startup in case menus were cleared by Chrome
+// recreate context menu item on startup
 chrome.runtime.onStartup?.addListener(() => {
   try {
     chrome.contextMenus.create({
       id: MENU_ID_ADD_WORM,
-      title: "Add Worm here",
+      title: "Add Worm",
       contexts: ["page", "selection", "image", "link", "video", "audio"],
     });
   } catch {}
