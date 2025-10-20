@@ -12,7 +12,6 @@
 export const DEFAULTS = {
   wormClass: "pw-worm",
   wormActiveClass: "pw-worm-active",
-  captureCursor: "crosshair",
   maxTextContext: 256,
   throttleMs: 60,
   storageKeyPrefix: "pageworms::",

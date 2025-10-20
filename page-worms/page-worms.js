@@ -10,6 +10,7 @@
  *   - renderAll(): Redraw all worms after DOM changes/resizes.
  *   - _resolve(anchor): Re-anchor via TextQuote -> selector -> tag+attrs -> body.
  *   - _observe(): Resize/scroll/mutation listeners with throttled rerender.
+ *   - clearScreen(): Remove rendered worms and tear down DOM overlays.
  *   - destroy(): Cleanup listeners/observers and DOM artifacts.
  *
  * Important Behavior:
@@ -18,7 +19,7 @@
  *
  * Public API:
  *   - class PageWorms
- *   - async function attachPageWorms(options): convenience bootstrap
+ *   - async function attachPageWorms(options): convenience bootstrap (exposes window.__pageWorms)
  *
  * Options:
  *   - storage: "local" | "chrome" | { get(url), set(url, arr) }
@@ -102,6 +103,9 @@ class PageWorms {
         : new LocalStorageAdapter();
   }
 
+  /**
+   * Initialize the overlay layer, hydrate persisted worms, and start observers.
+   */
   async init() {
     this._layer = ensureLayer();
     await this.load();
@@ -110,6 +114,7 @@ class PageWorms {
     this._initHostResizeObserver();
   }
 
+  /** Wire resize/scroll/mutation observers with a throttled render loop. */
   _observe() {
     this._reposition = throttle(() => {
       if (this._raf) cancelAnimationFrame(this._raf);
@@ -146,6 +151,7 @@ class PageWorms {
     this._mutObs.observe(document.body, { childList: true, subtree: true });
   }
 
+  /** Lazily create a ResizeObserver that keeps overlay boxes in sync. */
   _initHostResizeObserver() {
     if (this._hostRO) return;
     this._hostRO = new ResizeObserver((entries) => {
@@ -165,6 +171,7 @@ class PageWorms {
     });
   }
 
+  /** Tear down observers/listeners and remove rendered worm elements. */
   destroy() {
     if (this._reposition)
       window.removeEventListener("resize", this._reposition);
@@ -178,6 +185,7 @@ class PageWorms {
     this.wormEls.clear();
   }
 
+  /** Remove all tracked worms and aggressively clear overlay artifacts. */
   clearScreen() {
     // Remove the ones we know
     for (const el of this.wormEls.values()) el.remove();
@@ -221,13 +229,16 @@ class PageWorms {
     return worm;
   }
 
+  /** Load worms for the current canonical URL via the configured storage adapter. */
   async load() {
     this.worms = (await this.store.get(this.url)) || [];
   }
+  /** Persist the in-memory worm list for the current page. */
   async _persist() {
     await this.store.set(this.url, this.worms);
   }
 
+  /** Console instrumentation helper for creation/render lifecycle events. */
   _logWormEvent(action, worm, extra = {}) {
     try {
       console.log("[PageWorms]", {
@@ -245,6 +256,7 @@ class PageWorms {
   // ---------------------------------------------------------------------------
   // #region Anchoring Helpers
   // ---------------------------------------------------------------------------
+  /** Compose a resilient anchor from DOM target, click position, and optional selection. */
   _makeAnchor({ target, clickX, clickY, selection }) {
     const el = target?.nodeType === 1 ? target : target?.parentElement;
     const selector = el ? cssPath(el) : "";
@@ -279,6 +291,7 @@ class PageWorms {
     };
   }
 
+  /** Resolve a stored anchor back to a live host element using multiple fallbacks. */
   _resolve(anchor) {
     // 0) If both selector and textQuote, try to resolve selector and
     // verify it still contains the quote. If yes, use it as host.
@@ -348,12 +361,14 @@ class PageWorms {
   // ---------------------------------------------------------------------------
   // #region Rendering Pipeline
   // ---------------------------------------------------------------------------
+  /** Snapshot visible text content to accelerate later TextQuote resolution. */
   _buildTextCache() {
     const { nodes } = textContentStream(document.body);
     const allText = nodes.map((n) => n.text).join("");
     this._textCache = { nodes, allText, stamp: performance.now() };
   }
 
+  /** Re-render every worm, batching DOM writes behind requestAnimationFrame. */
   async renderAll() {
     this._isRendering = true;
     try {
@@ -406,6 +421,7 @@ class PageWorms {
     }
   }
 
+  /** Apply a precomputed render plan, reusing DOM nodes and minimizing writes. */
   _applyPlan(plan) {
     for (const item of plan) {
       const { worm, host, cannotContain, containerEl, xPct, yPct } = item;
@@ -460,6 +476,7 @@ class PageWorms {
     }
   }
 
+  /** Render a single worm immediately (used for freshly created annotations). */
   _drawWorm(worm) {
     injectStyles();
 

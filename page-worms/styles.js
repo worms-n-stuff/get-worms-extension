@@ -12,7 +12,7 @@
 
 import { DEFAULTS } from "./constants.js";
 
-/** Inject once; provides worm styling and scroll fade. */
+/** Inject the overlay styles once, covering worm visuals and scroll fade behaviour. */
 export function injectStyles() {
   if (document.getElementById("pp-style")) return;
   const css = `

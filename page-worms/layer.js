@@ -16,7 +16,7 @@
 
 import { DEFAULTS } from "./constants.js";
 
-/** Host overlay layer for worms/boxes (ignored by MO). */
+/** Ensure the shared overlay layer exists (and mark it to ignore observers). */
 export function ensureLayer() {
   let layer = document.getElementById("pp-layer");
   if (!layer) {
@@ -29,7 +29,7 @@ export function ensureLayer() {
   return layer;
 }
 
-/** Simple worm element. */
+/** Build the base worm button element with class + aria labelling. */
 export function createWormEl() {
   const el = document.createElement("button");
   el.type = "button";
@@ -38,7 +38,7 @@ export function createWormEl() {
   return el;
 }
 
-/** Ensure a positioning context on the container. */
+/** Ensure a positioning context on the container, memoizing the previous state. */
 export function makePositioningContext(containerEl) {
   const cs = getComputedStyle(containerEl);
   if (cs.position === "static") {
@@ -49,7 +49,7 @@ export function makePositioningContext(containerEl) {
   return false;
 }
 
-/** Create/update a box that overlays host inside container. */
+/** Create/update a positioned box that mirrors the host's bounds within a container. */
 export function createOrUpdateBox(containerEl, hostEl, idGen) {
   let id = hostEl.dataset.ppId;
   if (!id) hostEl.dataset.ppId = id = idGen();

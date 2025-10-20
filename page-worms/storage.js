@@ -9,8 +9,8 @@
  *   - ChromeStorageAdapter: Chrome extension storage parity.
  *
  * Adapter API:
- *   - get(url): Promise<Array> — return array of worm records for url.
- *   - set(url, arr): Promise<void> — persist full array atomically.
+ *   - get(url): Promise<Array> -> return array of worm records for url.
+ *   - set(url, arr): Promise<void> -> persist full array atomically.
  *
  * Notes:
  *   - Callers provide canonical URL string as key.

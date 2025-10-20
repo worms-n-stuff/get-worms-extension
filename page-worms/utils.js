@@ -14,7 +14,7 @@
  *   - uuid, throttle, normalizeText, getCanonicalUrl
  */
 
-/** UUID v4 (with crypto fallback). */
+/** RFC4122 v4 UUID using crypto.randomUUID when available (fallback to manual entropy). */
 export function uuid() {
   const c = globalThis.crypto || window.crypto;
   if (c?.randomUUID) return c.randomUUID();
@@ -29,7 +29,7 @@ export function uuid() {
   )}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Simple throttle: runs at most once per `ms`. */
+/** Throttle helper that schedules at most one call per `ms`, replaying the latest args. */
 export function throttle(fn, ms) {
   let t = 0,
     lastArgs = null,
@@ -48,11 +48,11 @@ export function throttle(fn, ms) {
   };
 }
 
-/** Normalize for robust text matching. */
+/** Normalize text for anchoring: NFC transform plus whitespace collapsing. */
 export const normalizeText = (s) =>
   s.normalize("NFC").replace(/\s+/g, " ").trim();
 
-/** Canonicalize URL (strip query, keep path+hash). */
+/** Canonicalize URL for storage keys (strip query, preserve path + hash). */
 export function getCanonicalUrl() {
   const u = new URL(location.href);
   u.search = "";

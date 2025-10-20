@@ -6,7 +6,7 @@
  *
  * Responsibilities:
  *   - cssPath(el): Generate resilient CSS selectors avoiding ephemeral classes.
- *   - textContentStream(): Iterate visible text nodes with global offsets.
+ *   - textContentStream(): Iterate visible text nodes with cached offsets.
  *   - findQuoteRange(exact, prefix, suffix): Map a TextQuote to a DOM Range.
  *   - elementForRange(range): Choose a sensible host element for a selection.
  *   - selectionContext(range, max): Build prefix/suffix for TextQuote anchors.
@@ -53,7 +53,7 @@ export function cssPath(el) {
   return parts.length ? parts.join(" > ") : "";
 }
 
-/** Stream of visible text nodes, with global offsets. */
+/** Return visible text nodes with normalized text and running offsets. */
 export function textContentStream(root = document.body) {
   /** Exclude non visible elements. Includes:
    * - Display none or hidden
@@ -89,7 +89,7 @@ export function textContentStream(root = document.body) {
   return { nodes, totalLen: total };
 }
 
-/** Best-effort TextQuote re-anchoring to DOM Range. */
+/** Best-effort TextQuote re-anchoring that can reuse cached text streams. */
 export function findQuoteRange(exact, prefix, suffix, cached) {
   /**
    * Find the best matching range for a quote in the text.
@@ -176,7 +176,7 @@ export function findQuoteRange(exact, prefix, suffix, cached) {
   return null;
 }
 
-/** Relative click point within element box. */
+/** Relative click point within element box, falling back to center when zero-sized. */
 export function elementBoxPct(el, clientX, clientY) {
   const r = el.getBoundingClientRect();
   if (r.width <= 0 || r.height <= 0) return { x: 0.5, y: 0.5 };
@@ -194,7 +194,7 @@ export function elementForRange(range) {
   );
 }
 
-/** Build prefix/suffix context around a selection range. */
+/** Build prefix/suffix context around a selection range, constrained by `max`. */
 export function selectionContext(range, max) {
   function grabLeft(node, offset, need) {
     let out = "",
@@ -267,7 +267,7 @@ export function selectionContext(range, max) {
   };
 }
 
-/** Whitelist of stable attributes to capture. */
+/** Whitelist of stable attributes to capture (truncated to keep anchors light). */
 export function stableAttrs(el) {
   if (!el || el.nodeType !== 1) return {};
   const out = {};
