@@ -93,7 +93,6 @@
   pointer-events: auto;
 }
 
-
 /* -------------------------------------------------------------------------- */
 /* Tooltip */
 /* -------------------------------------------------------------------------- */
@@ -158,7 +157,6 @@
   text-align: right;
 }
 
-
 /* -------------------------------------------------------------------------- */
 /* Buttons */
 /* -------------------------------------------------------------------------- */
@@ -201,44 +199,6 @@
   border-color: var(--accent-focus);
 }
 
-.pw-btn--primary {
-  /* font */
-  color: var(--text);
-
-  /* shape */
-  border-color: var(--accent-focus);
-
-  /* inner */
-  background: var(--accent-focus);
-}
-
-.pw-btn--primary:hover {
-  /* shape */
-  border-color: var(--accent-focus);
-
-  /* inner */
-  background: rgba(var(--accent-focus-rgb), 0.9);
-}
-
-.pw-btn--danger {
-  /* font */
-  color: var(--text);
-
-  /* shape */
-  border-color: var(--accent-focus);
-
-  /* inner */
-  background: rgba(var(--accent-focus-rgb), 0.75);
-}
-
-.pw-btn--danger:hover {
-  /* shape */
-  border-color: var(--accent-focus);
-
-  /* inner */
-  background: rgba(var(--accent-focus-rgb), 0.9);
-}
-
 .pw-btn--link {
   /* font */
   color: var(--accent);
@@ -254,7 +214,6 @@
 .pw-btn--link:hover {
   /* font */
   text-decoration: underline;
-  color: var(--accent-focus);
 
   /* inner */
   background: none;
@@ -281,7 +240,6 @@
   background: rgba(var(--accent-rgb), 0.2);
 }
 
-
 /* -------------------------------------------------------------------------- */
 /* Chips */
 /* -------------------------------------------------------------------------- */
@@ -304,7 +262,6 @@
   padding: 0 8px;
   background: rgba(var(--accent-rgb), 0.3);
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Modal Shell */
@@ -355,7 +312,6 @@
   flex-direction: column;
   overflow: hidden;
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Modal Layout */
@@ -420,7 +376,6 @@
   opacity: 0.7;
 }
 
-
 /* -------------------------------------------------------------------------- */
 /* Modal Content */
 /* -------------------------------------------------------------------------- */
@@ -464,7 +419,6 @@
   opacity: 0.6;
 }
 
-
 /* -------------------------------------------------------------------------- */
 /* Status Pills */
 /* -------------------------------------------------------------------------- */
@@ -485,32 +439,8 @@
   display: inline-flex;
   align-items: center;
   padding: 4px 12px;
+  background: rgba(var(--accent-rgb), 0.3);
 }
-
-.pw-status--private {
-  /* font */
-  color: var(--text);
-
-  /* inner */
-  background: rgba(var(--accent-rgb), 0.35);
-}
-
-.pw-status--friends {
-  /* font */
-  color: var(--text);
-
-  /* inner */
-  background: rgba(var(--accent-focus-rgb), 0.45);
-}
-
-.pw-status--public {
-  /* font */
-  color: var(--text);
-
-  /* inner */
-  background: rgba(var(--text-rgb), 0.2);
-}
-
 
 /* -------------------------------------------------------------------------- */
 /* Metadata */
@@ -536,7 +466,6 @@
   gap: 4px;
 }
 
-
 /* -------------------------------------------------------------------------- */
 /* Modal Footer */
 /* -------------------------------------------------------------------------- */
@@ -558,7 +487,6 @@
   /* inner */
   gap: 20px;
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Form Fields */
@@ -599,10 +527,43 @@
   width: 100%;
   border: 1px solid rgba(var(--accent-rgb), 0.4);
   border-radius: 6px;
+  box-sizing: border-box;
 
   /* inner */
   padding: 8px 10px;
   background: rgba(var(--text-rgb), 0.08);
+}
+
+.pw-field__control--input {
+  /* shape */
+  width: 100%;
+  min-height: 36px;
+
+  /* inner */
+  display: block;
+}
+
+.pw-field__control--dropdown {
+  /* font */
+  color: var(--text);
+
+  /* shape */
+  width: 100%;
+
+  /* inner */
+  display: block;
+  background: rgba(var(--bg-rgb), 0.85);
+
+  /* user interaction */
+  cursor: pointer;
+}
+
+.pw-field__control--dropdown option {
+  /* font */
+  color: var(--text);
+
+  /* inner */
+  background: var(--bg);
 }
 
 .pw-field__control:focus {
@@ -619,7 +580,6 @@
   /* user interaction */
   resize: vertical;
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Global States */

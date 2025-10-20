@@ -510,7 +510,7 @@ export class WormUI {
 
     const statusEl = viewEl.querySelector(".pw-status");
     if (statusEl) {
-      statusEl.className = `pw-status pw-status--${worm.status}`;
+      statusEl.className = `pw-status`;
       statusEl.textContent = STATUS_LABELS[worm.status] || "Private";
     }
 

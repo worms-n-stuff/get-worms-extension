@@ -37,13 +37,13 @@ const modalViewMarkup = `
     </section>
     <section class="pw-modal__section pw-modal__section--inline">
       <h3 class="pw-modal__section-title">Status</h3>
-      <span class="pw-status pw-status--private">Private</span>
+      <span class="pw-status">Private</span>
     </section>
     <section class="pw-modal__meta"></section>
   </div>
   <footer class="pw-modal__footer">
-    <button type="button" class="pw-btn pw-btn--primary" data-pw-action="edit">Edit</button>
-    <button type="button" class="pw-btn pw-btn--danger" data-pw-action="delete">Delete</button>
+    <button type="button" class="pw-btn" data-pw-action="edit">Edit</button>
+    <button type="button" class="pw-btn" data-pw-action="delete">Delete</button>
     <button type="button" class="pw-btn" data-pw-action="close">Close</button>
   </footer>
 </div>
@@ -62,11 +62,11 @@ const modalFormMarkup = `
     </label>
     <label class="pw-field">
       <span class="pw-field__label">Tags</span>
-      <input type="text" name="tags" class="pw-field__control" placeholder="tag1, tag2" />
+      <input type="text" name="tags" class="pw-field__control pw-field__control--input" placeholder="tag1, tag2" />
     </label>
     <label class="pw-field pw-field--inline">
       <span class="pw-field__label">Status</span>
-      <select name="status" class="pw-field__control">
+      <select name="status" class="pw-field__control pw-field__control--dropdown">
         <option value="private">Private</option>
         <option value="friends">Friends</option>
         <option value="public">Public</option>
