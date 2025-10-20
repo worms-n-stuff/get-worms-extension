@@ -128,6 +128,14 @@
 .pw-tooltip__content {
   /* position */
   margin: 0;
+
+  /* inner */
+  max-width: 100%;
+  display: -webkit-box;
+  line-clamp: 3;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .pw-tooltip__content--empty {
@@ -589,3 +597,4 @@ body.pw-modal-open {
   /* inner */
   overflow: hidden;
 }
+
