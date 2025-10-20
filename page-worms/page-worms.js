@@ -23,7 +23,6 @@
  * Options:
  *   - storage: "local" | "chrome" | { get(url), set(url, arr) }
  *   - enableSelection: boolean (store TextQuote when selection exists)
- *   - startCapture (attachPageWorms only): boolean (begin in capture mode)
  *
  * Data Model (per worm):
  *   {
@@ -64,6 +63,9 @@ class PageWorms {
    * @param {"local"|"chrome"|Object} opts.storage "local" (default), "chrome", or custom {get,set}
    * @param {boolean} opts.enableSelection If true, store TextQuote for current selection
    */
+  // ---------------------------------------------------------------------------
+  // #region Lifecycle & Observers
+  // ---------------------------------------------------------------------------
   constructor(opts = {}) {
     injectStyles();
     this._layer = null;
@@ -72,7 +74,6 @@ class PageWorms {
     this.url = getCanonicalUrl();
     this.worms = [];
     this.wormEls = new Map();
-    this.captureEnabled = false;
     this._resizeObs = null;
     this._mutObs = null;
     this._hostRO = null;
@@ -109,19 +110,93 @@ class PageWorms {
     this._initHostResizeObserver();
   }
 
-  _logWormEvent(action, worm, extra = {}) {
+  _observe() {
+    this._reposition = throttle(() => {
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = requestAnimationFrame(() => this.renderAll());
+    }, DEFAULTS.throttleMs);
+
+    window.addEventListener("resize", this._reposition);
+    window.addEventListener("scroll", this._onAnyScroll, {
+      passive: true,
+      capture: true,
+    });
+
+    this._resizeObs = new ResizeObserver(this._reposition);
+    this._resizeObs.observe(document.documentElement);
+
+    this._mutObs = new MutationObserver((entries) => {
+      if (this._isRendering) return;
+      for (const m of entries) {
+        if (
+          this._layer &&
+          (this._layer.contains(m.target) ||
+            [...m.addedNodes].some(
+              (n) => n.nodeType === 1 && this._layer.contains(n)
+            ) ||
+            [...m.removedNodes].some(
+              (n) => n.nodeType === 1 && this._layer.contains(n)
+            ))
+        )
+          continue;
+        this._reposition();
+        break;
+      }
+    });
+    this._mutObs.observe(document.body, { childList: true, subtree: true });
+  }
+
+  _initHostResizeObserver() {
+    if (this._hostRO) return;
+    this._hostRO = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const hostEl = e.target,
+          containerEl = hostEl.parentElement;
+        if (!containerEl) continue;
+        const box = containerEl.querySelector(
+          `:scope > .pp-box[data-for='${hostEl.dataset.ppId}']`
+        );
+        if (!box) continue;
+        box.style.width = hostEl.offsetWidth + "px";
+        box.style.height = hostEl.offsetHeight + "px";
+        box.style.left = hostEl.offsetLeft + "px";
+        box.style.top = hostEl.offsetTop + "px";
+      }
+    });
+  }
+
+  destroy() {
+    if (this._reposition)
+      window.removeEventListener("resize", this._reposition);
+    window.removeEventListener("scroll", this._onAnyScroll, { capture: true });
+
+    this._resizeObs?.disconnect();
+    this._mutObs?.disconnect();
+    this._hostRO?.disconnect();
+
+    for (const el of this.wormEls.values()) el.remove();
+    this.wormEls.clear();
+  }
+
+  clearScreen() {
+    // Remove the ones we know
+    for (const el of this.wormEls.values()) el.remove();
+    this.wormEls.clear();
+    this.worms = [];
+
+    // Aggressive sweep
     try {
-      console.log("[PageWorms]", {
-        action,
-        id: worm?.id,
-        url: this?.url,
-        created_at: worm?.created_at,
-        anchor: worm?.anchor, // includes dom, textQuote, relBoxPct, fallback scrollPct
-        ...extra,
-      });
+      document
+        .querySelectorAll(`.${DEFAULTS.wormClass}`)
+        .forEach((n) => n.remove());
+      document.querySelectorAll(`.pp-box`).forEach((n) => n.remove());
     } catch {}
   }
 
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Worm Management & Persistence
+  // ---------------------------------------------------------------------------
   /**
    * Programmatically add a worm using either a selection or a click point.
    * @param {Object} opts
@@ -153,6 +228,23 @@ class PageWorms {
     await this.store.set(this.url, this.worms);
   }
 
+  _logWormEvent(action, worm, extra = {}) {
+    try {
+      console.log("[PageWorms]", {
+        action,
+        id: worm?.id,
+        url: this?.url,
+        created_at: worm?.created_at,
+        anchor: worm?.anchor, // includes dom, textQuote, relBoxPct, fallback scrollPct
+        ...extra,
+      });
+    } catch {}
+  }
+
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Anchoring Helpers
+  // ---------------------------------------------------------------------------
   _makeAnchor({ target, clickX, clickY, selection }) {
     const el = target?.nodeType === 1 ? target : target?.parentElement;
     const selector = el ? cssPath(el) : "";
@@ -185,155 +277,6 @@ class PageWorms {
       },
       fallback: { scrollPct: docScrollPct() },
     };
-  }
-
-  _buildTextCache() {
-    const { nodes } = textContentStream(document.body);
-    const allText = nodes.map((n) => n.text).join("");
-    this._textCache = { nodes, allText, stamp: performance.now() };
-  }
-
-  _applyPlan(plan) {
-    for (const item of plan) {
-      const { worm, host, cannotContain, containerEl, xPct, yPct } = item;
-
-      // (a) Reuse existing element or create if missing
-      let wormEl = this.wormEls.get(worm.id);
-      if (!wormEl) {
-        wormEl = createWormEl(); // already sets class, aria-label
-        wormEl.dataset.wormId = worm.id;
-        this.wormEls.set(worm.id, wormEl);
-      }
-
-      // (b) Determine the final parent for this wormEl
-      let parentEl = containerEl;
-      let box = null;
-      if (cannotContain) {
-        // Create/update overlay box aligned to host (write)
-        box = createOrUpdateBox(containerEl, host, uuid);
-        parentEl = box;
-        // Make sure host resize observer watches this host (cheap)
-        this._initHostResizeObserver?.();
-        if (this._hostRO) this._hostRO.observe(host);
-      }
-
-      // (c) If host changed, reparent; else leave it alone
-      const prevHost = this._hostByWorm.get(worm.id);
-      if (prevHost !== host) {
-        if (wormEl.parentElement !== parentEl) {
-          parentEl.appendChild(wormEl);
-        }
-        this._hostByWorm.set(worm.id, host);
-      } else {
-        // Host same; parent might still differ (e.g., box recreated)
-        if (wormEl.parentElement !== parentEl) {
-          parentEl.appendChild(wormEl);
-        }
-      }
-
-      // (d) Only write style when the value actually changed (avoids layout work)
-      const prevL = wormEl.dataset.l,
-        prevT = wormEl.dataset.t;
-      const l = String(xPct),
-        t = String(yPct);
-      if (prevL !== l) {
-        wormEl.style.left = l + "%";
-        wormEl.dataset.l = l;
-      }
-      if (prevT !== t) {
-        wormEl.style.top = t + "%";
-        wormEl.dataset.t = t;
-      }
-    }
-  }
-
-  async renderAll() {
-    this._isRendering = true;
-    try {
-      // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
-      injectStyles();
-      // build text cache per render
-      this._buildTextCache();
-
-      // Phase A: build a plan (reads)
-      const plan = [];
-      const nextIds = new Set(this.worms.map((w) => w.id));
-
-      // Remove stale elements (ids no longer present)
-      for (const [id, el] of this.wormEls) {
-        if (!nextIds.has(id)) {
-          el.remove();
-          this.wormEls.delete(id);
-          this._hostByWorm.delete(id);
-        }
-      }
-
-      // For current worms, resolve hosts and compute placement
-      for (const worm of this.worms) {
-        const { hostEl } = this._resolve(worm.anchor /*, this._textCache*/);
-        const host = hostEl || document.body;
-
-        // Decide container (can host children or not)
-        const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(
-          host.tagName
-        );
-        const containerEl = cannotContain
-          ? host.parentElement || document.body
-          : host;
-
-        // Ensure positioning context (read ok)
-        makePositioningContext(containerEl);
-
-        // If we need a box overlay, compute (reads); created in write phase
-        const xPct = (worm.anchor.element?.relBoxPct?.x ?? 0.5) * 100;
-        const yPct = (worm.anchor.element?.relBoxPct?.y ?? 0.5) * 100;
-
-        plan.push({ worm, host, cannotContain, containerEl, xPct, yPct });
-      }
-
-      // Phase B: apply the plan (writes in a single rAF)
-      if (this._raf) cancelAnimationFrame(this._raf);
-      this._raf = requestAnimationFrame(() => this._applyPlan(plan));
-    } finally {
-      this._isRendering = false;
-    }
-  }
-
-  _drawWorm(worm) {
-    injectStyles();
-
-    const { hostEl } = this._resolve(worm.anchor);
-    const host = hostEl || document.body;
-
-    // Container choice
-    const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
-    const containerEl = cannotContain
-      ? host.parentElement || document.body
-      : host;
-
-    // Positioning context
-    makePositioningContext(containerEl);
-
-    // Box overlay if needed
-    const box = cannotContain
-      ? createOrUpdateBox(containerEl, host, uuid)
-      : containerEl;
-
-    // Worm
-    const wormEl = createWormEl();
-    wormEl.dataset.wormId = worm.id;
-
-    const x = (worm.anchor.element?.relBoxPct?.x ?? 0.5) * 100;
-    const y = (worm.anchor.element?.relBoxPct?.y ?? 0.5) * 100;
-    wormEl.style.left = x + "%";
-    wormEl.style.top = y + "%";
-
-    (cannotContain ? box : containerEl).appendChild(wormEl);
-    this.wormEls.set(worm.id, wormEl);
-
-    // Observe host for cheap overlay resync
-    this._initHostResizeObserver?.();
-    if (this._hostRO && cannotContain) this._hostRO.observe(host);
   }
 
   _resolve(anchor) {
@@ -401,88 +344,157 @@ class PageWorms {
     return { hostEl };
   }
 
-  _observe() {
-    this._reposition = throttle(() => {
-      if (this._raf) cancelAnimationFrame(this._raf);
-      this._raf = requestAnimationFrame(() => this.renderAll());
-    }, DEFAULTS.throttleMs);
-
-    window.addEventListener("resize", this._reposition);
-    window.addEventListener("scroll", this._onAnyScroll, {
-      passive: true,
-      capture: true,
-    });
-
-    this._resizeObs = new ResizeObserver(this._reposition);
-    this._resizeObs.observe(document.documentElement);
-
-    this._mutObs = new MutationObserver((entries) => {
-      if (this._isRendering) return;
-      for (const m of entries) {
-        if (
-          this._layer &&
-          (this._layer.contains(m.target) ||
-            [...m.addedNodes].some(
-              (n) => n.nodeType === 1 && this._layer.contains(n)
-            ) ||
-            [...m.removedNodes].some(
-              (n) => n.nodeType === 1 && this._layer.contains(n)
-            ))
-        )
-          continue;
-        this._reposition();
-        break;
-      }
-    });
-    this._mutObs.observe(document.body, { childList: true, subtree: true });
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Rendering Pipeline
+  // ---------------------------------------------------------------------------
+  _buildTextCache() {
+    const { nodes } = textContentStream(document.body);
+    const allText = nodes.map((n) => n.text).join("");
+    this._textCache = { nodes, allText, stamp: performance.now() };
   }
 
-  destroy() {
-    this.disableCapture();
-    if (this._reposition)
-      window.removeEventListener("resize", this._reposition);
-    window.removeEventListener("scroll", this._onAnyScroll, { capture: true });
-
-    this._resizeObs?.disconnect();
-    this._mutObs?.disconnect();
-    this._hostRO?.disconnect();
-
-    for (const el of this.wormEls.values()) el.remove();
-    this.wormEls.clear();
-  }
-
-  _initHostResizeObserver() {
-    if (this._hostRO) return;
-    this._hostRO = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        const hostEl = e.target,
-          containerEl = hostEl.parentElement;
-        if (!containerEl) continue;
-        const box = containerEl.querySelector(
-          `:scope > .pp-box[data-for='${hostEl.dataset.ppId}']`
-        );
-        if (!box) continue;
-        box.style.width = hostEl.offsetWidth + "px";
-        box.style.height = hostEl.offsetHeight + "px";
-        box.style.left = hostEl.offsetLeft + "px";
-        box.style.top = hostEl.offsetTop + "px";
-      }
-    });
-  }
-
-  clearScreen() {
-    // Remove the ones we know
-    for (const el of this.wormEls.values()) el.remove();
-    this.wormEls.clear();
-    this.worms = [];
-
-    // Aggressive sweep
+  async renderAll() {
+    this._isRendering = true;
     try {
-      document
-        .querySelectorAll(`.${DEFAULTS.wormClass}`)
-        .forEach((n) => n.remove());
-      document.querySelectorAll(`.pp-box`).forEach((n) => n.remove());
-    } catch {}
+      // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
+      injectStyles();
+      // build text cache per render
+      this._buildTextCache();
+
+      // Phase A: build a plan (reads)
+      const plan = [];
+      const nextIds = new Set(this.worms.map((w) => w.id));
+
+      // Remove stale elements (ids no longer present)
+      for (const [id, el] of this.wormEls) {
+        if (!nextIds.has(id)) {
+          el.remove();
+          this.wormEls.delete(id);
+          this._hostByWorm.delete(id);
+        }
+      }
+
+      // For current worms, resolve hosts and compute placement
+      for (const worm of this.worms) {
+        const { hostEl } = this._resolve(worm.anchor /*, this._textCache*/);
+        const host = hostEl || document.body;
+
+        // Decide container (can host children or not)
+        const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(
+          host.tagName
+        );
+        const containerEl = cannotContain
+          ? host.parentElement || document.body
+          : host;
+
+        // Ensure positioning context (read ok)
+        makePositioningContext(containerEl);
+
+        // If we need a box overlay, compute (reads); created in write phase
+        const xPct = (worm.anchor.element?.relBoxPct?.x ?? 0.5) * 100;
+        const yPct = (worm.anchor.element?.relBoxPct?.y ?? 0.5) * 100;
+
+        plan.push({ worm, host, cannotContain, containerEl, xPct, yPct });
+      }
+
+      // Phase B: apply the plan (writes in a single rAF)
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = requestAnimationFrame(() => this._applyPlan(plan));
+    } finally {
+      this._isRendering = false;
+    }
+  }
+
+  _applyPlan(plan) {
+    for (const item of plan) {
+      const { worm, host, cannotContain, containerEl, xPct, yPct } = item;
+
+      // (a) Reuse existing element or create if missing
+      let wormEl = this.wormEls.get(worm.id);
+      if (!wormEl) {
+        wormEl = createWormEl(); // already sets class, aria-label
+        wormEl.dataset.wormId = worm.id;
+        this.wormEls.set(worm.id, wormEl);
+      }
+
+      // (b) Determine the final parent for this wormEl
+      let parentEl = containerEl;
+      let box = null;
+      if (cannotContain) {
+        // Create/update overlay box aligned to host (write)
+        box = createOrUpdateBox(containerEl, host, uuid);
+        parentEl = box;
+        // Make sure host resize observer watches this host (cheap)
+        this._initHostResizeObserver?.();
+        if (this._hostRO) this._hostRO.observe(host);
+      }
+
+      // (c) If host changed, reparent; else leave it alone
+      const prevHost = this._hostByWorm.get(worm.id);
+      if (prevHost !== host) {
+        if (wormEl.parentElement !== parentEl) {
+          parentEl.appendChild(wormEl);
+        }
+        this._hostByWorm.set(worm.id, host);
+      } else {
+        // Host same; parent might still differ (e.g., box recreated)
+        if (wormEl.parentElement !== parentEl) {
+          parentEl.appendChild(wormEl);
+        }
+      }
+
+      // (d) Only write style when the value actually changed (avoids layout work)
+      const prevL = wormEl.dataset.l,
+        prevT = wormEl.dataset.t;
+      const l = String(xPct),
+        t = String(yPct);
+      if (prevL !== l) {
+        wormEl.style.left = l + "%";
+        wormEl.dataset.l = l;
+      }
+      if (prevT !== t) {
+        wormEl.style.top = t + "%";
+        wormEl.dataset.t = t;
+      }
+    }
+  }
+
+  _drawWorm(worm) {
+    injectStyles();
+
+    const { hostEl } = this._resolve(worm.anchor);
+    const host = hostEl || document.body;
+
+    // Container choice
+    const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
+    const containerEl = cannotContain
+      ? host.parentElement || document.body
+      : host;
+
+    // Positioning context
+    makePositioningContext(containerEl);
+
+    // Box overlay if needed
+    const box = cannotContain
+      ? createOrUpdateBox(containerEl, host, uuid)
+      : containerEl;
+
+    // Worm
+    const wormEl = createWormEl();
+    wormEl.dataset.wormId = worm.id;
+
+    const x = (worm.anchor.element?.relBoxPct?.x ?? 0.5) * 100;
+    const y = (worm.anchor.element?.relBoxPct?.y ?? 0.5) * 100;
+    wormEl.style.left = x + "%";
+    wormEl.style.top = y + "%";
+
+    (cannotContain ? box : containerEl).appendChild(wormEl);
+    this.wormEls.set(worm.id, wormEl);
+
+    // Observe host for cheap overlay resync
+    this._initHostResizeObserver?.();
+    if (this._hostRO && cannotContain) this._hostRO.observe(host);
   }
 }
 
@@ -490,7 +502,6 @@ class PageWorms {
 export async function attachPageWorms(options = {}) {
   const pp = new PageWorms(options);
   await pp.init();
-  if (options.startCapture) pp.enableCapture();
   window.__pageWorms = pp;
   return pp;
 }
