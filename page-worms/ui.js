@@ -1,7 +1,8 @@
 /**
  * ui.js
  * -----------------------------------------------------------------------------
- * Encapsulates tooltip and modal interactions for worms.
+ * Coordinates tooltip previews and modal interactions for worm annotations.
+ * Keeps DOM wiring private while exposing a minimal API for page modules.
  */
 
 import {
@@ -34,6 +35,7 @@ export class WormUI {
     this._state = null;
     this._formResolver = null;
 
+    // Bind handlers once so listeners can be added/removed predictably.
     this._handleEnter = this._handleEnter.bind(this);
     this._handleLeave = this._handleLeave.bind(this);
     this._handleClick = this._handleClick.bind(this);
@@ -44,7 +46,12 @@ export class WormUI {
     this._handleModalKeydown = this._handleModalKeydown.bind(this);
   }
 
+  // ---------------------------------------------------------------------------
+  // #region Public API
+  // ---------------------------------------------------------------------------
+
   wireWormElement(el) {
+    // Idempotently attach the UI listeners to a worm wrapper element.
     if (!el || el.dataset.pwWired === "1") return;
     el.dataset.pwOwned = "1";
     el.dataset.pwWired = "1";
@@ -53,6 +60,37 @@ export class WormUI {
     el.addEventListener("focus", this._handleEnter);
     el.addEventListener("blur", this._handleLeave);
     el.addEventListener("click", this._handleClick);
+  }
+
+  async promptCreate(initial = {}) {
+    // Opens the modal in "create" mode and resolves with the submitted payload.
+    const result = await this._openForm({
+      mode: "create",
+      worm: {
+        id: null,
+        content: initial?.content || "",
+        tags: Array.isArray(initial?.tags) ? initial.tags : [],
+        status: initial?.status || "private",
+      },
+    });
+    return result;
+  }
+
+  async openViewer(wormId) {
+    // Presents the read-only modal view for the selected worm.
+    const id = Number(wormId);
+    if (!Number.isFinite(id)) return;
+    const worm = this._getWormById?.(id);
+    if (!worm) {
+      this.closeModal();
+      return;
+    }
+    this.hideTooltip(true);
+    const viewEl = createModalView();
+    this._populateView(viewEl, worm);
+    this._state = { mode: "view", wormId: worm.id };
+    this._setModalContent(viewEl, this._state);
+    this._showBackdrop();
   }
 
   hideTooltip(immediate = false) {
@@ -108,58 +146,10 @@ export class WormUI {
     document.removeEventListener("keydown", this._handleModalKeydown, true);
   }
 
-  _returnToViewer(wormId) {
-    if (wormId == null) return;
-    const worm = this._getWormById?.(wormId);
-    if (worm) void this.openViewer(wormId);
-  }
-
-  async promptCreate(initial = {}) {
-    const result = await this._openForm({
-      mode: "create",
-      worm: {
-        id: null,
-        content: initial?.content || "",
-        tags: Array.isArray(initial?.tags) ? initial.tags : [],
-        status: initial?.status || "private",
-      },
-    });
-    return result;
-  }
-
-  async openViewer(wormId) {
-    const id = Number(wormId);
-    if (!Number.isFinite(id)) return;
-    const worm = this._getWormById?.(id);
-    if (!worm) {
-      this.closeModal();
-      return;
-    }
-    this.hideTooltip(true);
-    const viewEl = createModalView();
-    this._populateView(viewEl, worm);
-    this._state = { mode: "view", wormId: worm.id };
-    this._setModalContent(viewEl, this._state);
-    this._showBackdrop();
-  }
-
+  // #endregion
   // ---------------------------------------------------------------------------
-  // Tooltip helpers
+  // #region Event Handlers
   // ---------------------------------------------------------------------------
-  _ensureTooltip() {
-    if (this._tooltipEl) return;
-    const tooltip = createTooltip();
-    tooltip.dataset.pwOwned = "1";
-    tooltip.addEventListener("mouseenter", () => this._cancelTooltipHide());
-    tooltip.addEventListener("mouseleave", () => this.hideTooltip());
-    const expandBtn = tooltip.querySelector(".pw-tooltip__expand");
-    expandBtn?.addEventListener("click", this._handleTooltipExpand);
-
-    document.body.appendChild(tooltip);
-    this._tooltipEl = tooltip;
-    this._tooltipContentEl = tooltip.querySelector(".pw-tooltip__content");
-    this._tooltipTagsEl = tooltip.querySelector(".pw-tooltip__tags");
-  }
 
   _handleEnter(e) {
     const target = e.currentTarget;
@@ -193,6 +183,106 @@ export class WormUI {
     if (!Number.isFinite(id)) return;
     this.hideTooltip(true);
     void this.openViewer(id);
+  }
+
+  _handleBackdropClick(e) {
+    if (e.target !== this._backdropEl) return;
+    const state = this._state;
+    this._resolveForm(null);
+    this.closeModal();
+    if (state?.mode === "form") this._returnToViewer(state?.wormId ?? null);
+  }
+
+  _handleModalClick(e) {
+    const control = e.target.closest?.("[data-pw-action]");
+    if (!control) return;
+    const action = control.dataset.pwAction;
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const state = this._state;
+    const wormId = state?.wormId ?? null;
+
+    switch (action) {
+      case "close": {
+        this._resolveForm(null);
+        this.closeModal();
+        if (state?.mode === "form") this._returnToViewer(wormId);
+        break;
+      }
+      case "cancel": {
+        this._resolveForm(null);
+        this.closeModal();
+        this._returnToViewer(wormId);
+        break;
+      }
+      case "edit": {
+        if (wormId != null) void this._beginEdit(wormId);
+        break;
+      }
+      case "delete": {
+        if (wormId != null) void this._confirmDelete(wormId);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  _handleModalSubmit(e) {
+    if (!(e.target instanceof HTMLFormElement)) return;
+    if (this._state?.mode !== "form") return;
+    e.preventDefault();
+    const data = new FormData(e.target);
+    const content = (data.get("content") || "").toString().trim();
+    const tagsRaw = (data.get("tags") || "").toString();
+    const tags = tagsRaw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const statusValue = data.get("status")?.toString() || "private";
+    const status =
+      statusValue === "friends" || statusValue === "public"
+        ? statusValue
+        : "private";
+
+    this._resolveForm({
+      content,
+      tags,
+      status,
+    });
+    this.closeModal();
+  }
+
+  _handleModalKeydown(e) {
+    if (e.key !== "Escape") return;
+    if (!this._backdropEl || this._backdropEl.hidden) return;
+    e.preventDefault();
+    const state = this._state;
+    this._resolveForm(null);
+    this.closeModal();
+    if (state?.mode === "form") this._returnToViewer(state?.wormId ?? null);
+  }
+
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Tooltip Lifecycle
+  // ---------------------------------------------------------------------------
+
+  _ensureTooltip() {
+    if (this._tooltipEl) return;
+    const tooltip = createTooltip();
+    tooltip.dataset.pwOwned = "1";
+    tooltip.addEventListener("mouseenter", () => this._cancelTooltipHide());
+    tooltip.addEventListener("mouseleave", () => this.hideTooltip());
+    const expandBtn = tooltip.querySelector(".pw-tooltip__expand");
+    expandBtn?.addEventListener("click", this._handleTooltipExpand);
+
+    document.body.appendChild(tooltip);
+    this._tooltipEl = tooltip;
+    this._tooltipContentEl = tooltip.querySelector(".pw-tooltip__content");
+    this._tooltipTagsEl = tooltip.querySelector(".pw-tooltip__tags");
   }
 
   _showTooltip(worm, wormEl) {
@@ -274,9 +364,11 @@ export class WormUI {
     }
   }
 
+  // #endregion
   // ---------------------------------------------------------------------------
-  // Modal helpers
+  // #region Modal Lifecycle
   // ---------------------------------------------------------------------------
+
   _ensureBackdrop() {
     if (this._backdropEl && this._windowEl) return;
     const { backdrop, windowEl } = createBackdrop();
@@ -316,84 +408,15 @@ export class WormUI {
     document.removeEventListener("keydown", this._handleModalKeydown, true);
   }
 
-  _handleBackdropClick(e) {
-    if (e.target !== this._backdropEl) return;
-    const state = this._state;
-    this._resolveForm(null);
-    this.closeModal();
-    if (state?.mode === "form") this._returnToViewer(state?.wormId ?? null);
-  }
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Modal Workflows
+  // ---------------------------------------------------------------------------
 
-  _handleModalClick(e) {
-    const control = e.target.closest?.("[data-pw-action]");
-    if (!control) return;
-    const action = control.dataset.pwAction;
-    if (!action) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const state = this._state;
-    const wormId = state?.wormId ?? null;
-
-    switch (action) {
-      case "close": {
-        this._resolveForm(null);
-        this.closeModal();
-        if (state?.mode === "form") this._returnToViewer(wormId);
-        break;
-      }
-      case "cancel": {
-        this._resolveForm(null);
-        this.closeModal();
-        this._returnToViewer(wormId);
-        break;
-      }
-      case "edit": {
-        if (wormId != null) void this._beginEdit(wormId);
-        break;
-      }
-      case "delete": {
-        if (wormId != null) void this._confirmDelete(wormId);
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  _handleModalSubmit(e) {
-    if (!(e.target instanceof HTMLFormElement)) return;
-    if (this._state?.mode !== "form") return;
-    e.preventDefault();
-    const data = new FormData(e.target);
-    const content = (data.get("content") || "").toString().trim();
-    const tagsRaw = (data.get("tags") || "").toString();
-    const tags = tagsRaw
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
-    const statusValue = data.get("status")?.toString() || "private";
-    const status =
-      statusValue === "friends" || statusValue === "public"
-        ? statusValue
-        : "private";
-
-    this._resolveForm({
-      content,
-      tags,
-      status,
-    });
-    this.closeModal();
-  }
-
-  _handleModalKeydown(e) {
-    if (e.key !== "Escape") return;
-    if (!this._backdropEl || this._backdropEl.hidden) return;
-    e.preventDefault();
-    const state = this._state;
-    this._resolveForm(null);
-    this.closeModal();
-    if (state?.mode === "form") this._returnToViewer(state?.wormId ?? null);
+  _returnToViewer(wormId) {
+    if (wormId == null) return;
+    const worm = this._getWormById?.(wormId);
+    if (worm) void this.openViewer(wormId);
   }
 
   async _beginEdit(wormId) {
@@ -534,10 +557,16 @@ export class WormUI {
     }
   }
 
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Utilities
+  // ---------------------------------------------------------------------------
+
   _formatDate(iso) {
     if (!iso) return null;
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return null;
     return date.toLocaleString();
   }
+  // #endregion
 }
