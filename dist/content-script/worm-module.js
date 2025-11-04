@@ -7,12 +7,12 @@
 (() => {
     const KEY = "pw_enabled";
     let instance = null;
-    let attachPageWorms = null;
+    let attachPageWormsFn = null;
     let alive = true;
     let lastContextClick = null;
     const wormsModuleUrl = chrome.runtime.getURL("dist/page-worms/page-worms.js");
     const wormsReady = import(wormsModuleUrl).then((mod) => {
-        attachPageWorms = mod.attachPageWorms;
+        attachPageWormsFn = mod.attachPageWorms;
     });
     /* -------------------------------------------------------------------------- */
     /*                            Init & On/Off Toggle                            */
@@ -93,8 +93,8 @@
         await wormsReady;
         if (!isContextAlive())
             return null;
-        if (!instance) {
-            const created = await attachPageWorms({
+        if (!instance && attachPageWormsFn) {
+            const created = await attachPageWormsFn({
                 storage: "chrome",
                 enableSelection: true,
             });

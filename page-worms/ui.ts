@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ui.js
  * -----------------------------------------------------------------------------
@@ -12,15 +11,42 @@ import {
   createModalView,
   createModalForm,
 } from "./templates.js";
+import type { WormRecord, WormFormData, WormStatus } from "./types.js";
 
-const STATUS_LABELS = {
+type WormUIState =
+  | { mode: "view"; wormId: number }
+  | { mode: "form"; wormId: number | null };
+
+type WormUIOptions = {
+  getWormById?: (id: number) => WormRecord | null;
+  onEdit?: (id: number, data: WormFormData) => void | Promise<void>;
+  onDelete?: (id: number) => void | Promise<void>;
+};
+
+type Resolver = (value: WormFormData | null) => void;
+type WormForForm = Pick<WormRecord, "content" | "tags" | "status"> & { id: number | null };
+
+const STATUS_LABELS: Record<WormStatus, string> = {
   private: "Private",
   friends: "Friends",
   public: "Public",
 };
 
 export class WormUI {
-  constructor({ getWormById, onEdit, onDelete } = {}) {
+  private readonly _getWormById?: (id: number) => WormRecord | null;
+  private readonly _onEdit?: WormUIOptions["onEdit"];
+  private readonly _onDelete?: WormUIOptions["onDelete"];
+  private _tooltipEl: HTMLDivElement | null;
+  private _tooltipContentEl: HTMLDivElement | null;
+  private _tooltipTagsEl: HTMLDivElement | null;
+  private _tooltipHideTimer: ReturnType<typeof setTimeout> | null;
+  private _tooltipActiveId: number | null;
+  private _backdropEl: HTMLDivElement | null;
+  private _windowEl: HTMLDivElement | null;
+  private _state: WormUIState | null;
+  private _formResolver: Resolver | null;
+
+  constructor({ getWormById, onEdit, onDelete }: WormUIOptions = {}) {
     this._getWormById = getWormById;
     this._onEdit = onEdit;
     this._onDelete = onDelete;
@@ -51,7 +77,7 @@ export class WormUI {
   // #region Public API
   // ---------------------------------------------------------------------------
 
-  wireWormElement(el) {
+  wireWormElement(el: HTMLElement | null): void {
     // Idempotently attach the UI listeners to a worm wrapper element.
     if (!el || el.dataset.pwWired === "1") return;
     el.dataset.pwOwned = "1";
@@ -63,7 +89,7 @@ export class WormUI {
     el.addEventListener("click", this._handleClick);
   }
 
-  async promptCreate(initial = {}) {
+  async promptCreate(initial: Partial<WormFormData> = {}): Promise<WormFormData | null> {
     // Opens the modal in "create" mode and resolves with the submitted payload.
     const result = await this._openForm({
       mode: "create",
@@ -77,7 +103,7 @@ export class WormUI {
     return result;
   }
 
-  async openViewer(wormId) {
+  async openViewer(wormId: number): Promise<void> {
     // Presents the read-only modal view for the selected worm.
     const id = Number(wormId);
     if (!Number.isFinite(id)) return;
@@ -94,9 +120,9 @@ export class WormUI {
     this._showBackdrop();
   }
 
-  hideTooltip(immediate = false) {
+  hideTooltip(immediate = false): void {
     if (!this._tooltipEl) return;
-    const hide = () => {
+    const hide = (): void => {
       this._tooltipEl.hidden = true;
       this._tooltipEl.style.display = "none";
       this._tooltipEl.dataset.wormId = "";
@@ -111,7 +137,7 @@ export class WormUI {
     this._tooltipHideTimer = setTimeout(hide, 120);
   }
 
-  closeModal() {
+  closeModal(): void {
     if (!this._backdropEl) return;
     this._resolveForm(null);
     this._hideBackdrop();
@@ -123,12 +149,12 @@ export class WormUI {
     }
   }
 
-  reset() {
+  reset(): void {
     this.hideTooltip(true);
     this.closeModal();
   }
 
-  destroy() {
+  destroy(): void {
     this.reset();
     if (this._tooltipEl) {
       this._tooltipEl.remove();
@@ -152,8 +178,8 @@ export class WormUI {
   // #region Event Handlers
   // ---------------------------------------------------------------------------
 
-  _handleEnter(e) {
-    const target = e.currentTarget;
+  private _handleEnter(e: Event): void {
+    const target = e.currentTarget as HTMLElement | null;
     if (!target) return;
     const id = Number(target.dataset.wormId || target.dataset.wormid || "");
     if (!Number.isFinite(id)) return;
@@ -162,14 +188,14 @@ export class WormUI {
     this._showTooltip(worm, target);
   }
 
-  _handleLeave() {
+  private _handleLeave(): void {
     this.hideTooltip();
   }
 
-  _handleClick(e) {
+  private _handleClick(e: MouseEvent): void {
     e.preventDefault();
     e.stopPropagation();
-    const target = e.currentTarget;
+    const target = e.currentTarget as HTMLElement | null;
     if (!target) return;
     const id = Number(target.dataset.wormId || target.dataset.wormid || "");
     if (!Number.isFinite(id)) return;
@@ -177,7 +203,7 @@ export class WormUI {
     void this.openViewer(id);
   }
 
-  _handleTooltipExpand(e) {
+  private _handleTooltipExpand(e: MouseEvent): void {
     e.preventDefault();
     e.stopPropagation();
     const id = Number(this._tooltipEl?.dataset.wormId || "");
@@ -186,7 +212,7 @@ export class WormUI {
     void this.openViewer(id);
   }
 
-  _handleBackdropClick(e) {
+  private _handleBackdropClick(e: MouseEvent): void {
     if (e.target !== this._backdropEl) return;
     const state = this._state;
     this._resolveForm(null);
@@ -194,8 +220,8 @@ export class WormUI {
     if (state?.mode === "form") this._returnToViewer(state?.wormId ?? null);
   }
 
-  _handleModalClick(e) {
-    const control = e.target.closest?.("[data-pw-action]");
+  private _handleModalClick(e: MouseEvent): void {
+    const control = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-pw-action]");
     if (!control) return;
     const action = control.dataset.pwAction;
     if (!action) return;
@@ -231,7 +257,7 @@ export class WormUI {
     }
   }
 
-  _handleModalSubmit(e) {
+  private _handleModalSubmit(e: Event): void {
     if (!(e.target instanceof HTMLFormElement)) return;
     if (this._state?.mode !== "form") return;
     e.preventDefault();
@@ -256,7 +282,7 @@ export class WormUI {
     this.closeModal();
   }
 
-  _handleModalKeydown(e) {
+  private _handleModalKeydown(e: KeyboardEvent): void {
     if (e.key !== "Escape") return;
     if (!this._backdropEl || this._backdropEl.hidden) return;
     e.preventDefault();
@@ -271,22 +297,22 @@ export class WormUI {
   // #region Tooltip Lifecycle
   // ---------------------------------------------------------------------------
 
-  _ensureTooltip() {
+  private _ensureTooltip(): void {
     if (this._tooltipEl) return;
     const tooltip = createTooltip();
     tooltip.dataset.pwOwned = "1";
     tooltip.addEventListener("mouseenter", () => this._cancelTooltipHide());
     tooltip.addEventListener("mouseleave", () => this.hideTooltip());
-    const expandBtn = tooltip.querySelector(".pw-tooltip__expand");
+    const expandBtn = tooltip.querySelector<HTMLButtonElement>(".pw-tooltip__expand");
     expandBtn?.addEventListener("click", this._handleTooltipExpand);
 
     document.body.appendChild(tooltip);
     this._tooltipEl = tooltip;
-    this._tooltipContentEl = tooltip.querySelector(".pw-tooltip__content");
-    this._tooltipTagsEl = tooltip.querySelector(".pw-tooltip__tags");
+    this._tooltipContentEl = tooltip.querySelector<HTMLDivElement>(".pw-tooltip__content");
+    this._tooltipTagsEl = tooltip.querySelector<HTMLDivElement>(".pw-tooltip__tags");
   }
 
-  _showTooltip(worm, wormEl) {
+  private _showTooltip(worm: WormRecord, wormEl: HTMLElement): void {
     this._ensureTooltip();
     if (!this._tooltipEl) return;
     this._cancelTooltipHide();
@@ -297,8 +323,10 @@ export class WormUI {
     if (snippet) {
       const text =
         snippet.length > 160 ? `${snippet.slice(0, 157).trimEnd()}...` : snippet;
-      this._tooltipContentEl.textContent = text;
-      this._tooltipContentEl.classList.remove("pw-tooltip__content--empty");
+      if (this._tooltipContentEl) {
+        this._tooltipContentEl.textContent = text;
+        this._tooltipContentEl.classList.remove("pw-tooltip__content--empty");
+      }
     } else if (this._tooltipContentEl) {
       this._tooltipContentEl.textContent = "No comment yet.";
       this._tooltipContentEl.classList.add("pw-tooltip__content--empty");
@@ -324,7 +352,7 @@ export class WormUI {
     requestAnimationFrame(() => this._positionTooltip(wormEl));
   }
 
-  _positionTooltip(wormEl) {
+  private _positionTooltip(wormEl: HTMLElement): void {
     if (!this._tooltipEl) return;
     const tooltip = this._tooltipEl;
     const rect = wormEl.getBoundingClientRect();
@@ -355,10 +383,10 @@ export class WormUI {
     if (top > maxTop) top = maxTop;
 
     tooltip.style.top = `${Math.round(top)}px`;
-    tooltip.style.left = `${Math.round(left)}px`;
+   tooltip.style.left = `${Math.round(left)}px`;
   }
 
-  _cancelTooltipHide() {
+  private _cancelTooltipHide(): void {
     if (this._tooltipHideTimer) {
       clearTimeout(this._tooltipHideTimer);
       this._tooltipHideTimer = null;
@@ -370,7 +398,7 @@ export class WormUI {
   // #region Modal Lifecycle
   // ---------------------------------------------------------------------------
 
-  _ensureBackdrop() {
+  private _ensureBackdrop(): void {
     if (this._backdropEl && this._windowEl) return;
     const { backdrop, windowEl } = createBackdrop();
     backdrop.dataset.pwOwned = "1";
@@ -383,7 +411,7 @@ export class WormUI {
     this._windowEl = windowEl;
   }
 
-  _setModalContent(contentEl, state) {
+  private _setModalContent(contentEl: Element, state: WormUIState | null): void {
     this._ensureBackdrop();
     if (!this._windowEl) return;
     this._windowEl.innerHTML = "";
@@ -393,7 +421,7 @@ export class WormUI {
     this._windowEl.appendChild(contentEl);
   }
 
-  _showBackdrop() {
+  private _showBackdrop(): void {
     if (!this._backdropEl) return;
     this._backdropEl.hidden = false;
     this._backdropEl.setAttribute("aria-hidden", "false");
@@ -401,7 +429,7 @@ export class WormUI {
     document.addEventListener("keydown", this._handleModalKeydown, true);
   }
 
-  _hideBackdrop() {
+  private _hideBackdrop(): void {
     if (!this._backdropEl) return;
     this._backdropEl.hidden = true;
     this._backdropEl.setAttribute("aria-hidden", "true");
@@ -414,13 +442,13 @@ export class WormUI {
   // #region Modal Workflows
   // ---------------------------------------------------------------------------
 
-  _returnToViewer(wormId) {
+  private _returnToViewer(wormId: number | null): void {
     if (wormId == null) return;
     const worm = this._getWormById?.(wormId);
     if (worm) void this.openViewer(wormId);
   }
 
-  async _beginEdit(wormId) {
+  private async _beginEdit(wormId: number): Promise<void> {
     const worm = this._getWormById?.(wormId);
     if (!worm) return;
     const result = await this._openForm({ mode: "edit", worm });
@@ -441,7 +469,7 @@ export class WormUI {
     }
   }
 
-  async _confirmDelete(wormId) {
+  private async _confirmDelete(wormId: number): Promise<void> {
     const msg = "Delete this worm?";
     const ok =
       typeof confirm === "function"
@@ -460,29 +488,35 @@ export class WormUI {
     this.hideTooltip(true);
   }
 
-  _resolveForm(value) {
+  private _resolveForm(value: WormFormData | null): void {
     if (!this._formResolver) return;
     const resolver = this._formResolver;
     this._formResolver = null;
     resolver(value);
   }
 
-  async _openForm({ mode, worm }) {
+  private async _openForm({
+    mode,
+    worm,
+  }: {
+    mode: "create" | "edit";
+    worm: WormForForm | WormRecord | null;
+  }): Promise<WormFormData | null> {
     const formEl = createModalForm();
 
-    const titleEl = formEl.querySelector(".pw-modal__title");
-    const submitBtn = formEl.querySelector('button[type="submit"]');
+    const titleEl = formEl.querySelector<HTMLHeadingElement>(".pw-modal__title");
+    const submitBtn = formEl.querySelector<HTMLButtonElement>('button[type="submit"]');
     if (mode === "create") {
-      titleEl.textContent = "Add Worm";
-      submitBtn.textContent = "Add Worm";
+      if (titleEl) titleEl.textContent = "Add Worm";
+      if (submitBtn) submitBtn.textContent = "Add Worm";
     } else {
-      titleEl.textContent = "Edit Worm";
-      submitBtn.textContent = "Save Changes";
+      if (titleEl) titleEl.textContent = "Edit Worm";
+      if (submitBtn) submitBtn.textContent = "Save Changes";
     }
 
-    const textarea = formEl.querySelector("textarea[name='content']");
-    const tagsInput = formEl.querySelector("input[name='tags']");
-    const statusSelect = formEl.querySelector("select[name='status']");
+    const textarea = formEl.querySelector<HTMLTextAreaElement>("textarea[name='content']");
+    const tagsInput = formEl.querySelector<HTMLInputElement>("input[name='tags']");
+    const statusSelect = formEl.querySelector<HTMLSelectElement>("select[name='status']");
 
     if (textarea) textarea.value = worm?.content || "";
     if (tagsInput)
@@ -491,7 +525,7 @@ export class WormUI {
 
     this._state = { mode: "form", wormId: worm?.id ?? null };
 
-    const promise = new Promise((resolve) => {
+    const promise = new Promise<WormFormData | null>((resolve) => {
       this._formResolver = resolve;
     });
 
@@ -501,8 +535,8 @@ export class WormUI {
     return promise;
   }
 
-  _populateView(viewEl, worm) {
-    const commentEl = viewEl.querySelector(".pw-modal__comment");
+  private _populateView(viewEl: HTMLElement, worm: WormRecord): void {
+    const commentEl = viewEl.querySelector<HTMLParagraphElement>(".pw-modal__comment");
     if (commentEl) {
       const content = (worm.content || "").trim();
       if (content) {
@@ -563,7 +597,7 @@ export class WormUI {
   // #region Utilities
   // ---------------------------------------------------------------------------
 
-  _formatDate(iso) {
+  private _formatDate(iso: string | null | undefined): string | null {
     if (!iso) return null;
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return null;

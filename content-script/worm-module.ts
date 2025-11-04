@@ -6,14 +6,16 @@
  */
 (() => {
   const KEY = "pw_enabled";
-  let instance: Awaited<ReturnType<typeof attachPageWorms>> | null = null;
-  let attachPageWorms: any = null;
+  type AttachPageWorms = typeof import("../page-worms/page-worms.js").attachPageWorms;
+  type PageWormsInstance = Awaited<ReturnType<AttachPageWorms>>;
+  let instance: PageWormsInstance | null = null;
+  let attachPageWormsFn: AttachPageWorms | null = null;
   let alive = true;
   let lastContextClick: { clientX: number; clientY: number } | null = null;
 
   const wormsModuleUrl = chrome.runtime.getURL("dist/page-worms/page-worms.js");
   const wormsReady = import(wormsModuleUrl).then((mod) => {
-    attachPageWorms = mod.attachPageWorms;
+    attachPageWormsFn = mod.attachPageWorms;
   });
 
   /* -------------------------------------------------------------------------- */
@@ -103,8 +105,8 @@
     await wormsReady;
     if (!isContextAlive()) return null;
 
-    if (!instance) {
-      const created = await attachPageWorms({
+    if (!instance && attachPageWormsFn) {
+      const created = await attachPageWormsFn({
         storage: "chrome",
         enableSelection: true,
       });

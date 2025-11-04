@@ -7,7 +7,7 @@
 
 const STYLE_ID = "pw-style-link";
 
-function resolveCssUrl() {
+function resolveCssUrl(): string {
   if (typeof chrome !== "undefined" && chrome?.runtime?.getURL) {
     return chrome.runtime.getURL("page-worms/page-worms.css");
   }
@@ -19,7 +19,7 @@ function resolveCssUrl() {
 }
 
 /** Inject the overlay styles via <link>, guarding against duplicate inserts. */
-export function injectStyles() {
+export function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
 
   const link = document.createElement("link");

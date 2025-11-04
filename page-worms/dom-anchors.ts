@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * dom-anchors.js
  * -----------------------------------------------------------------------------
@@ -26,12 +25,29 @@
 
 import { normalizeText } from "./utils.js";
 
+export type TextStreamNode = {
+  node: Text;
+  text: string;
+  start: number;
+  end: number;
+};
+
+export type TextContentStream = {
+  nodes: TextStreamNode[];
+  totalLen: number;
+};
+
+export type TextQuoteCache = {
+  nodes: TextStreamNode[];
+  allText: string;
+};
+
 /** Resilient CSS path (avoids ephemeral classes). */
-export function cssPath(el) {
-  if (!el || el.nodeType !== 1) return "";
-  const parts = [];
-  while (el && el.nodeType === 1 && el !== document.body) {
-    const id = el.getAttribute("id");
+export function cssPath(el: Element | null): string {
+  if (!el || el.nodeType !== Node.ELEMENT_NODE) return "";
+  const parts: string[] = [];
+  while (el && el.nodeType === Node.ELEMENT_NODE && el !== document.body) {
+    const id = el.getAttribute("id") ?? "";
     if (id && /^[A-Za-z][\w\-\:\.]+$/.test(id)) {
       parts.unshift(`#${CSS.escape(id)}`);
       break;
@@ -56,13 +72,15 @@ export function cssPath(el) {
 }
 
 /** Return visible text nodes with normalized text and running offsets. */
-export function textContentStream(root = document.body) {
+export function textContentStream(
+  root: Element | Document = document.body ?? document
+): TextContentStream {
   /** Exclude non visible elements. Includes:
    * - Display none or hidden
    * - not in layout flow (e.g. width/height 0)
    */
-  function isVisible(el) {
-    if (!el || el.nodeType !== 1) return false;
+  function isVisible(el: Element | null): boolean {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden") return false;
     return el.getClientRects().length > 0;
@@ -79,20 +97,31 @@ export function textContentStream(root = document.body) {
     },
   });
 
-  const nodes = [];
-  let total = 0,
-    node;
+  const nodes: TextStreamNode[] = [];
+  let total = 0;
+  let node: Node | null;
   while ((node = walker.nextNode())) {
-    const txt = normalizeText(node.nodeValue);
+    const textNode = node as Text;
+    const txt = normalizeText(textNode.nodeValue);
     if (!txt) continue;
-    nodes.push({ node, text: txt, start: total, end: total + txt.length });
+    nodes.push({
+      node: textNode,
+      text: txt,
+      start: total,
+      end: total + txt.length,
+    });
     total += txt.length;
   }
   return { nodes, totalLen: total };
 }
 
 /** Best-effort TextQuote re-anchoring that can reuse cached text streams. */
-export function findQuoteRange(exact, prefix, suffix, cached) {
+export function findQuoteRange(
+  exact: string,
+  prefix = "",
+  suffix = "",
+  cached?: TextQuoteCache | null
+): Range | null {
   /**
    * Find the best matching range for a quote in the text.
    * @param {string} allText
@@ -142,21 +171,23 @@ export function findQuoteRange(exact, prefix, suffix, cached) {
   }
 
   if (!exact) return null;
-  const nodes = cached?.nodes ?? textContentStream(document.body).nodes;
+  const nodes = cached?.nodes ?? textContentStream(document.body ?? document).nodes;
   const exactNorm = normalizeText(exact);
 
   // Build the same corpus we will map back onto
-  const allText = cached?.allText ?? nodes.map((n) => n.text).join("");
+  const allText =
+    cached?.allText ??
+    nodes.map((n) => n.text).join("");
 
   const startIdx = findBestMatch(allText, exactNorm, prefix, suffix);
   if (startIdx === -1) return null;
   const endIdx = startIdx + exactNorm.length;
 
   const range = document.createRange();
-  let sNode = null,
-    sOffset = 0,
-    eNode = null,
-    eOffset = 0;
+  let sNode: Text | null = null;
+  let sOffset = 0;
+  let eNode: Text | null = null;
+  let eOffset = 0;
 
   // Map offsets → DOM Range
   for (const seg of nodes) {
@@ -179,68 +210,83 @@ export function findQuoteRange(exact, prefix, suffix, cached) {
 }
 
 /** Relative click point within element box, falling back to center when zero-sized. */
-export function elementBoxPct(el, clientX, clientY) {
+export function elementBoxPct(
+  el: Element,
+  clientX: number,
+  clientY: number
+): { x: number; y: number } {
   const r = el.getBoundingClientRect();
   if (r.width <= 0 || r.height <= 0) return { x: 0.5, y: 0.5 };
   return { x: (clientX - r.left) / r.width, y: (clientY - r.top) / r.height };
 }
 
 /** Choose a sensible host for a text range (block/inline). */
-export function elementForRange(range) {
-  let node = range.startContainer;
-  if (node.nodeType === 3) node = node.parentElement;
+export function elementForRange(range: Range): Element {
+  let node: Node | null = range.startContainer;
+  if (node.nodeType === Node.TEXT_NODE) {
+    node = (node as Text).parentElement;
+  }
+  const element = node instanceof Element ? node : null;
+  const fallback = document.body ?? document.documentElement;
   return (
-    node?.closest(
+    element?.closest(
       "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,code,figure,section,article,div,span,a"
-    ) || document.body
+    ) || fallback
   );
 }
 
 /** Build prefix/suffix context around a selection range, constrained by `max`. */
-export function selectionContext(range, max) {
-  function grabLeft(node, offset, need) {
+export function selectionContext(
+  range: Range,
+  max: number
+): { prefix: string; suffix: string } {
+  function grabLeft(node: Node | null, offset: number, need: number): string {
     let out = "",
       n = node,
       o = offset;
     while (n && need > 0) {
       if (
-        n.nodeType === 3 &&
+        n.nodeType === Node.TEXT_NODE &&
         n.parentElement &&
         !n.parentElement.matches("script,style,noscript,template")
       ) {
-        const text = normalizeText(n.nodeValue || "");
+        const txtNode = n as Text;
+        const text = normalizeText(txtNode.nodeValue || "");
         out = (n === node ? text.slice(0, o) : text) + out;
         if (out.length >= need) break;
       }
       let prev = n.previousSibling;
-      while (prev && prev.nodeType !== 3) prev = prev.previousSibling;
+      while (prev && prev.nodeType !== Node.TEXT_NODE) prev = prev.previousSibling;
       if (!prev) {
         n = n.parentNode;
         if (!n || !n.previousSibling) break;
         n = n.previousSibling;
         while (n && n.lastChild) n = n.lastChild;
-      } else n = prev;
-      o = n && n.nodeType === 3 ? (n.nodeValue || "").length : 0;
+      } else {
+        n = prev;
+      }
+      o = n && n.nodeType === Node.TEXT_NODE ? ((n as Text).nodeValue || "").length : 0;
     }
     return out.slice(-need);
   }
 
-  function grabRight(node, offset, need) {
+  function grabRight(node: Node | null, offset: number, need: number): string {
     let out = "",
       n = node,
       o = offset;
     while (n && need > 0) {
       if (
-        n.nodeType === 3 &&
+        n.nodeType === Node.TEXT_NODE &&
         n.parentElement &&
         !n.parentElement.matches("script,style,noscript,template")
       ) {
-        const text = normalizeText(n.nodeValue || "");
+        const txtNode = n as Text;
+        const text = normalizeText(txtNode.nodeValue || "");
         out += n === node ? text.slice(o) : text;
         if (out.length >= need) break;
       }
       let next = n.nextSibling;
-      while (next && next.nodeType !== 3) next = next.nextSibling;
+      while (next && next.nodeType !== Node.TEXT_NODE) next = next.nextSibling;
       if (!next) {
         n = n.parentNode;
         if (!n || !n.nextSibling) break;
@@ -253,11 +299,11 @@ export function selectionContext(range, max) {
   }
 
   const sc =
-    range.startContainer.nodeType === 3
+    range.startContainer.nodeType === Node.TEXT_NODE
       ? range.startContainer
       : range.startContainer.firstChild;
   const ec =
-    range.endContainer.nodeType === 3
+    range.endContainer.nodeType === Node.TEXT_NODE
       ? range.endContainer
       : range.endContainer.firstChild;
   const so = range.startOffset,
@@ -271,7 +317,7 @@ export function selectionContext(range, max) {
 
 /** Whitelist of stable attributes to capture (truncated to keep anchors light). */
 export function stableAttrs(el: Element): Record<string, string> {
-  if (!el || el.nodeType !== 1) return {} as Record<string, string>;
+  if (!el || el.nodeType !== Node.ELEMENT_NODE) return {};
   const out: Record<string, string> = {};
   for (const a of Array.from(el.attributes) as Attr[]) {
     if (/^(data-|aria-|role$|alt$|title$)/.test(a.name)) {
@@ -286,7 +332,7 @@ export function stableAttrs(el: Element): Record<string, string> {
 }
 
 /** Document vertical scroll percentage. */
-export function docScrollPct() {
+export function docScrollPct(): number {
   const doc = document.documentElement;
   const h = doc.scrollHeight - doc.clientHeight;
   return h <= 0 ? 0 : doc.scrollTop / h;

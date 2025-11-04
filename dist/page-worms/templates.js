@@ -90,6 +90,9 @@ function getTemplate(cache, markup) {
         tpl.innerHTML = markup.trim();
         cache.node = tpl.content.firstElementChild;
     }
+    if (!cache.node) {
+        throw new Error("Template markup did not yield an element.");
+    }
     return cache.node;
 }
 export function createTooltip() {
@@ -98,6 +101,9 @@ export function createTooltip() {
 export function createBackdrop() {
     const backdrop = getTemplate(caches.backdrop, backdropMarkup).cloneNode(true);
     const windowEl = backdrop.querySelector(".pw-modal-window");
+    if (!windowEl) {
+        throw new Error("Backdrop template missing modal window element.");
+    }
     return { backdrop, windowEl };
 }
 export function createModalView() {

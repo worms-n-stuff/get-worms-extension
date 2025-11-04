@@ -80,39 +80,49 @@ const modalFormMarkup = `
 </form>
 `;
 
-const caches = {
-  tooltip: { node: null },
-  backdrop: { node: null },
-  modalView: { node: null },
-  modalForm: { node: null },
+type TemplateCache<T extends Element> = {
+  node: T | null;
 };
 
-function getTemplate(cache, markup) {
+const caches = {
+  tooltip: { node: null as HTMLDivElement | null },
+  backdrop: { node: null as HTMLDivElement | null },
+  modalView: { node: null as HTMLDivElement | null },
+  modalForm: { node: null as HTMLFormElement | null },
+} satisfies Record<string, TemplateCache<Element>>;
+
+function getTemplate<T extends Element>(cache: TemplateCache<T>, markup: string): T {
   if (!cache.node) {
     if (typeof document === "undefined") {
       throw new Error("Templates require a DOM environment.");
     }
     const tpl = document.createElement("template");
     tpl.innerHTML = markup.trim();
-    cache.node = tpl.content.firstElementChild;
+    cache.node = tpl.content.firstElementChild as T | null;
+  }
+  if (!cache.node) {
+    throw new Error("Template markup did not yield an element.");
   }
   return cache.node;
 }
 
-export function createTooltip() {
-  return getTemplate(caches.tooltip, tooltipMarkup).cloneNode(true);
+export function createTooltip(): HTMLDivElement {
+  return getTemplate(caches.tooltip, tooltipMarkup).cloneNode(true) as HTMLDivElement;
 }
 
-export function createBackdrop() {
-  const backdrop = getTemplate(caches.backdrop, backdropMarkup).cloneNode(true);
-  const windowEl = backdrop.querySelector(".pw-modal-window");
+export function createBackdrop(): { backdrop: HTMLDivElement; windowEl: HTMLDivElement } {
+  const backdrop = getTemplate(caches.backdrop, backdropMarkup).cloneNode(true) as HTMLDivElement;
+  const windowEl = backdrop.querySelector<HTMLDivElement>(".pw-modal-window");
+  if (!windowEl) {
+    throw new Error("Backdrop template missing modal window element.");
+  }
   return { backdrop, windowEl };
 }
 
-export function createModalView() {
-  return getTemplate(caches.modalView, modalViewMarkup).cloneNode(true);
+export function createModalView(): HTMLDivElement {
+  return getTemplate(caches.modalView, modalViewMarkup).cloneNode(true) as HTMLDivElement;
 }
 
-export function createModalForm() {
-  return getTemplate(caches.modalForm, modalFormMarkup).cloneNode(true);
+export function createModalForm(): HTMLFormElement {
+  return getTemplate(caches.modalForm, modalFormMarkup).cloneNode(true) as HTMLFormElement;
 }

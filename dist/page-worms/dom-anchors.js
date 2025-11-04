@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * dom-anchors.js
  * -----------------------------------------------------------------------------
@@ -26,11 +25,11 @@
 import { normalizeText } from "./utils.js";
 /** Resilient CSS path (avoids ephemeral classes). */
 export function cssPath(el) {
-    if (!el || el.nodeType !== 1)
+    if (!el || el.nodeType !== Node.ELEMENT_NODE)
         return "";
     const parts = [];
-    while (el && el.nodeType === 1 && el !== document.body) {
-        const id = el.getAttribute("id");
+    while (el && el.nodeType === Node.ELEMENT_NODE && el !== document.body) {
+        const id = el.getAttribute("id") ?? "";
         if (id && /^[A-Za-z][\w\-\:\.]+$/.test(id)) {
             parts.unshift(`#${CSS.escape(id)}`);
             break;
@@ -54,13 +53,13 @@ export function cssPath(el) {
     return parts.length ? parts.join(" > ") : "";
 }
 /** Return visible text nodes with normalized text and running offsets. */
-export function textContentStream(root = document.body) {
+export function textContentStream(root = document.body ?? document) {
     /** Exclude non visible elements. Includes:
      * - Display none or hidden
      * - not in layout flow (e.g. width/height 0)
      */
     function isVisible(el) {
-        if (!el || el.nodeType !== 1)
+        if (!el || el.nodeType !== Node.ELEMENT_NODE)
             return false;
         const cs = getComputedStyle(el);
         if (cs.display === "none" || cs.visibility === "hidden")
@@ -80,18 +79,25 @@ export function textContentStream(root = document.body) {
         },
     });
     const nodes = [];
-    let total = 0, node;
+    let total = 0;
+    let node;
     while ((node = walker.nextNode())) {
-        const txt = normalizeText(node.nodeValue);
+        const textNode = node;
+        const txt = normalizeText(textNode.nodeValue);
         if (!txt)
             continue;
-        nodes.push({ node, text: txt, start: total, end: total + txt.length });
+        nodes.push({
+            node: textNode,
+            text: txt,
+            start: total,
+            end: total + txt.length,
+        });
         total += txt.length;
     }
     return { nodes, totalLen: total };
 }
 /** Best-effort TextQuote re-anchoring that can reuse cached text streams. */
-export function findQuoteRange(exact, prefix, suffix, cached) {
+export function findQuoteRange(exact, prefix = "", suffix = "", cached) {
     /**
      * Find the best matching range for a quote in the text.
      * @param {string} allText
@@ -139,16 +145,20 @@ export function findQuoteRange(exact, prefix, suffix, cached) {
     }
     if (!exact)
         return null;
-    const nodes = cached?.nodes ?? textContentStream(document.body).nodes;
+    const nodes = cached?.nodes ?? textContentStream(document.body ?? document).nodes;
     const exactNorm = normalizeText(exact);
     // Build the same corpus we will map back onto
-    const allText = cached?.allText ?? nodes.map((n) => n.text).join("");
+    const allText = cached?.allText ??
+        nodes.map((n) => n.text).join("");
     const startIdx = findBestMatch(allText, exactNorm, prefix, suffix);
     if (startIdx === -1)
         return null;
     const endIdx = startIdx + exactNorm.length;
     const range = document.createRange();
-    let sNode = null, sOffset = 0, eNode = null, eOffset = 0;
+    let sNode = null;
+    let sOffset = 0;
+    let eNode = null;
+    let eOffset = 0;
     // Map offsets → DOM Range
     for (const seg of nodes) {
         if (sNode == null && startIdx >= seg.start && startIdx <= seg.end) {
@@ -178,25 +188,29 @@ export function elementBoxPct(el, clientX, clientY) {
 /** Choose a sensible host for a text range (block/inline). */
 export function elementForRange(range) {
     let node = range.startContainer;
-    if (node.nodeType === 3)
+    if (node.nodeType === Node.TEXT_NODE) {
         node = node.parentElement;
-    return (node?.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,code,figure,section,article,div,span,a") || document.body);
+    }
+    const element = node instanceof Element ? node : null;
+    const fallback = document.body ?? document.documentElement;
+    return (element?.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,code,figure,section,article,div,span,a") || fallback);
 }
 /** Build prefix/suffix context around a selection range, constrained by `max`. */
 export function selectionContext(range, max) {
     function grabLeft(node, offset, need) {
         let out = "", n = node, o = offset;
         while (n && need > 0) {
-            if (n.nodeType === 3 &&
+            if (n.nodeType === Node.TEXT_NODE &&
                 n.parentElement &&
                 !n.parentElement.matches("script,style,noscript,template")) {
-                const text = normalizeText(n.nodeValue || "");
+                const txtNode = n;
+                const text = normalizeText(txtNode.nodeValue || "");
                 out = (n === node ? text.slice(0, o) : text) + out;
                 if (out.length >= need)
                     break;
             }
             let prev = n.previousSibling;
-            while (prev && prev.nodeType !== 3)
+            while (prev && prev.nodeType !== Node.TEXT_NODE)
                 prev = prev.previousSibling;
             if (!prev) {
                 n = n.parentNode;
@@ -206,25 +220,27 @@ export function selectionContext(range, max) {
                 while (n && n.lastChild)
                     n = n.lastChild;
             }
-            else
+            else {
                 n = prev;
-            o = n && n.nodeType === 3 ? (n.nodeValue || "").length : 0;
+            }
+            o = n && n.nodeType === Node.TEXT_NODE ? (n.nodeValue || "").length : 0;
         }
         return out.slice(-need);
     }
     function grabRight(node, offset, need) {
         let out = "", n = node, o = offset;
         while (n && need > 0) {
-            if (n.nodeType === 3 &&
+            if (n.nodeType === Node.TEXT_NODE &&
                 n.parentElement &&
                 !n.parentElement.matches("script,style,noscript,template")) {
-                const text = normalizeText(n.nodeValue || "");
+                const txtNode = n;
+                const text = normalizeText(txtNode.nodeValue || "");
                 out += n === node ? text.slice(o) : text;
                 if (out.length >= need)
                     break;
             }
             let next = n.nextSibling;
-            while (next && next.nodeType !== 3)
+            while (next && next.nodeType !== Node.TEXT_NODE)
                 next = next.nextSibling;
             if (!next) {
                 n = n.parentNode;
@@ -240,10 +256,10 @@ export function selectionContext(range, max) {
         }
         return out.slice(0, need);
     }
-    const sc = range.startContainer.nodeType === 3
+    const sc = range.startContainer.nodeType === Node.TEXT_NODE
         ? range.startContainer
         : range.startContainer.firstChild;
-    const ec = range.endContainer.nodeType === 3
+    const ec = range.endContainer.nodeType === Node.TEXT_NODE
         ? range.endContainer
         : range.endContainer.firstChild;
     const so = range.startOffset, eo = range.endOffset;
@@ -254,7 +270,7 @@ export function selectionContext(range, max) {
 }
 /** Whitelist of stable attributes to capture (truncated to keep anchors light). */
 export function stableAttrs(el) {
-    if (!el || el.nodeType !== 1)
+    if (!el || el.nodeType !== Node.ELEMENT_NODE)
         return {};
     const out = {};
     for (const a of Array.from(el.attributes)) {

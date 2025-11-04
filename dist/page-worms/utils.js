@@ -35,7 +35,9 @@ export function uuid() {
 }
 /** Throttle helper that schedules at most one call per `ms`, replaying the latest args. */
 export function throttle(fn, ms) {
-    let t = 0, lastArgs = null, scheduled = false;
+    let t = 0;
+    let lastArgs = null;
+    let scheduled = false;
     return (...args) => {
         const now = Date.now();
         lastArgs = args;
@@ -44,7 +46,8 @@ export function throttle(fn, ms) {
             setTimeout(() => {
                 t = Date.now();
                 scheduled = false;
-                fn(...lastArgs);
+                if (lastArgs)
+                    fn(...lastArgs);
             }, Math.max(0, ms - (now - t)));
         }
     };

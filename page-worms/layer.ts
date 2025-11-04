@@ -16,7 +16,7 @@
 import { DEFAULTS } from "./constants.js";
 
 /** Build the base worm button element with class + aria labelling. */
-export function createWormEl() {
+export function createWormEl(): HTMLButtonElement {
   const el = document.createElement("button");
   el.type = "button";
   el.className = DEFAULTS.wormClass;
@@ -26,7 +26,7 @@ export function createWormEl() {
 }
 
 /** Ensure a positioning context on the container, memoizing the previous state. */
-export function makePositioningContext(containerEl) {
+export function makePositioningContext(containerEl: HTMLElement): boolean {
   const cs = getComputedStyle(containerEl);
   if (cs.position === "static") {
     containerEl.style.position = "relative";
@@ -36,10 +36,18 @@ export function makePositioningContext(containerEl) {
 }
 
 /** Create/update a positioned box that mirrors the host's bounds within a container. */
-export function createOrUpdateBox(containerEl, hostEl, idGen) {
-  let id = hostEl.dataset.ppId;
-  if (!id) hostEl.dataset.ppId = id = idGen();
-  let box = containerEl.querySelector(`:scope > .pp-box[data-for='${id}']`);
+export function createOrUpdateBox(
+  containerEl: HTMLElement,
+  hostEl: HTMLElement,
+  idGen: () => string
+): HTMLDivElement {
+  let id = hostEl.dataset.ppId ?? "";
+  if (!id) {
+    hostEl.dataset.ppId = id = idGen();
+  }
+  let box = containerEl.querySelector<HTMLDivElement>(
+    `:scope > .pp-box[data-for='${id}']`
+  );
   if (!box) {
     box = document.createElement("div");
     box.className = "pp-box";

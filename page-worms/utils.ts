@@ -15,7 +15,7 @@
  */
 
 /** RFC4122 v4 UUID using crypto.randomUUID when available (fallback to manual entropy). */
-export function uuid() {
+export function uuid(): string {
   const cryptoObj = typeof globalThis.crypto !== "undefined" ? globalThis.crypto : undefined;
   if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
   if (!cryptoObj?.getRandomValues) {
@@ -38,11 +38,14 @@ export function uuid() {
 }
 
 /** Throttle helper that schedules at most one call per `ms`, replaying the latest args. */
-export function throttle(fn, ms) {
-  let t = 0,
-    lastArgs = null,
-    scheduled = false;
-  return (...args) => {
+export function throttle<TArgs extends unknown[]>(
+  fn: (...args: TArgs) => void,
+  ms: number
+): (...args: TArgs) => void {
+  let t = 0;
+  let lastArgs: TArgs | null = null;
+  let scheduled = false;
+  return (...args: TArgs) => {
     const now = Date.now();
     lastArgs = args;
     if (!scheduled) {
@@ -50,14 +53,14 @@ export function throttle(fn, ms) {
       setTimeout(() => {
         t = Date.now();
         scheduled = false;
-        fn(...lastArgs);
+        if (lastArgs) fn(...lastArgs);
       }, Math.max(0, ms - (now - t)));
     }
   };
 }
 
 /** Normalize text for anchoring: NFC transform plus whitespace collapsing. */
-export const normalizeText = (s) =>
+export const normalizeText = (s: unknown): string =>
   (s ?? "")
     .toString()
     .normalize("NFC")
@@ -65,7 +68,7 @@ export const normalizeText = (s) =>
     .trim();
 
 /** Canonicalize URL for storage keys (strip query, preserve path + hash). */
-export function getCanonicalUrl() {
+export function getCanonicalUrl(): string {
   const u = new URL(location.href);
   u.search = "";
   return u.toString();

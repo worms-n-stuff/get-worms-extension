@@ -33,9 +33,10 @@ export function makePositioningContext(containerEl) {
 }
 /** Create/update a positioned box that mirrors the host's bounds within a container. */
 export function createOrUpdateBox(containerEl, hostEl, idGen) {
-    let id = hostEl.dataset.ppId;
-    if (!id)
+    let id = hostEl.dataset.ppId ?? "";
+    if (!id) {
         hostEl.dataset.ppId = id = idGen();
+    }
     let box = containerEl.querySelector(`:scope > .pp-box[data-for='${id}']`);
     if (!box) {
         box = document.createElement("div");

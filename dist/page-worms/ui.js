@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ui.js
  * -----------------------------------------------------------------------------
@@ -181,7 +180,7 @@ export class WormUI {
             this._returnToViewer(state?.wormId ?? null);
     }
     _handleModalClick(e) {
-        const control = e.target.closest?.("[data-pw-action]");
+        const control = e.target?.closest("[data-pw-action]");
         if (!control)
             return;
         const action = control.dataset.pwAction;
@@ -283,8 +282,10 @@ export class WormUI {
         const snippet = (worm.content || "").trim();
         if (snippet) {
             const text = snippet.length > 160 ? `${snippet.slice(0, 157).trimEnd()}...` : snippet;
-            this._tooltipContentEl.textContent = text;
-            this._tooltipContentEl.classList.remove("pw-tooltip__content--empty");
+            if (this._tooltipContentEl) {
+                this._tooltipContentEl.textContent = text;
+                this._tooltipContentEl.classList.remove("pw-tooltip__content--empty");
+            }
         }
         else if (this._tooltipContentEl) {
             this._tooltipContentEl.textContent = "No comment yet.";
@@ -450,17 +451,21 @@ export class WormUI {
         this._formResolver = null;
         resolver(value);
     }
-    async _openForm({ mode, worm }) {
+    async _openForm({ mode, worm, }) {
         const formEl = createModalForm();
         const titleEl = formEl.querySelector(".pw-modal__title");
         const submitBtn = formEl.querySelector('button[type="submit"]');
         if (mode === "create") {
-            titleEl.textContent = "Add Worm";
-            submitBtn.textContent = "Add Worm";
+            if (titleEl)
+                titleEl.textContent = "Add Worm";
+            if (submitBtn)
+                submitBtn.textContent = "Add Worm";
         }
         else {
-            titleEl.textContent = "Edit Worm";
-            submitBtn.textContent = "Save Changes";
+            if (titleEl)
+                titleEl.textContent = "Edit Worm";
+            if (submitBtn)
+                submitBtn.textContent = "Save Changes";
         }
         const textarea = formEl.querySelector("textarea[name='content']");
         const tagsInput = formEl.querySelector("input[name='tags']");

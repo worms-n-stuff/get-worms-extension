@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * storage.js
  * -----------------------------------------------------------------------------
@@ -26,14 +25,18 @@ export class LocalStorageAdapter {
     }
     async get(url) {
         try {
-            return JSON.parse(localStorage.getItem(this.keyFor(url)) || "[]");
+            const raw = localStorage.getItem(this.keyFor(url));
+            if (!raw)
+                return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
         }
         catch {
             return [];
         }
     }
-    async set(url, arr) {
-        localStorage.setItem(this.keyFor(url), JSON.stringify(arr));
+    async set(url, worms) {
+        localStorage.setItem(this.keyFor(url), JSON.stringify(worms));
     }
 }
 export class ChromeStorageAdapter {
@@ -45,16 +48,23 @@ export class ChromeStorageAdapter {
     }
     async get(url) {
         return new Promise((resolve) => {
-            if (!chrome?.storage?.local)
-                return resolve([]);
-            chrome.storage.local.get([this.keyFor(url)], (res) => resolve(res[this.keyFor(url)] || []));
+            if (!chrome?.storage?.local) {
+                resolve([]);
+                return;
+            }
+            chrome.storage.local.get([this.keyFor(url)], (res) => {
+                const value = res[this.keyFor(url)];
+                resolve(Array.isArray(value) ? value : []);
+            });
         });
     }
-    async set(url, arr) {
+    async set(url, worms) {
         return new Promise((resolve) => {
-            if (!chrome?.storage?.local)
-                return resolve();
-            chrome.storage.local.set({ [this.keyFor(url)]: arr }, resolve);
+            if (!chrome?.storage?.local) {
+                resolve();
+                return;
+            }
+            chrome.storage.local.set({ [this.keyFor(url)]: worms }, resolve);
         });
     }
 }

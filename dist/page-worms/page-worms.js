@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * page-worms.js
  * -----------------------------------------------------------------------------
@@ -48,10 +47,83 @@ import { DEFAULTS } from "./constants.js";
 import { uuid, throttle, normalizeText, getCanonicalUrl } from "./utils.js";
 import { cssPath, findQuoteRange, elementBoxPct, selectionContext, stableAttrs, elementForRange, docScrollPct, textContentStream, } from "./dom-anchors.js";
 import { injectStyles } from "./styles.js";
-import { LocalStorageAdapter, ChromeStorageAdapter } from "./storage.js";
-import { createWormEl, makePositioningContext, createOrUpdateBox } from "./layer.js";
+import { LocalStorageAdapter, ChromeStorageAdapter, } from "./storage.js";
+import { createWormEl, makePositioningContext, createOrUpdateBox, } from "./layer.js";
 import { WormUI } from "./ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
+function isStorageAdapter(value) {
+    return (typeof value === "object" &&
+        value !== null &&
+        typeof value.get === "function" &&
+        typeof value.set === "function");
+}
+function clamp01(value) {
+    if (!Number.isFinite(value))
+        return 0;
+    if (value < 0)
+        return 0;
+    if (value > 1)
+        return 1;
+    return value;
+}
+function toStringRecord(value) {
+    if (!value || typeof value !== "object")
+        return {};
+    const out = {};
+    for (const [key, val] of Object.entries(value)) {
+        if (typeof val === "string") {
+            out[key] = val;
+        }
+    }
+    return out;
+}
+function normalizePosition(raw) {
+    const obj = (raw && typeof raw === "object") ? raw : {};
+    const dom = (obj.dom && typeof obj.dom === "object" ? obj.dom : null);
+    const selector = typeof dom?.selector === "string" ? dom.selector : "";
+    const textQuoteRaw = obj.textQuote && typeof obj.textQuote === "object"
+        ? obj.textQuote
+        : null;
+    const textQuote = textQuoteRaw && typeof textQuoteRaw.exact === "string" && textQuoteRaw.exact.trim()
+        ? {
+            exact: textQuoteRaw.exact,
+            prefix: typeof textQuoteRaw.prefix === "string" ? textQuoteRaw.prefix : "",
+            suffix: typeof textQuoteRaw.suffix === "string" ? textQuoteRaw.suffix : "",
+        }
+        : null;
+    const elementRaw = obj.element && typeof obj.element === "object"
+        ? obj.element
+        : {};
+    const relPctRaw = elementRaw.relBoxPct && typeof elementRaw.relBoxPct === "object"
+        ? elementRaw.relBoxPct
+        : {};
+    const rawX = relPctRaw.x;
+    const rawY = relPctRaw.y;
+    const relBoxPct = {
+        x: clamp01(typeof rawX === "number" ? rawX : 0.5),
+        y: clamp01(typeof rawY === "number" ? rawY : 0.5),
+    };
+    const fallbackRaw = obj.fallback && typeof obj.fallback === "object"
+        ? obj.fallback
+        : {};
+    const rawScrollPct = fallbackRaw.scrollPct;
+    let scrollPct = 0;
+    if (typeof rawScrollPct === "number" && Number.isFinite(rawScrollPct)) {
+        scrollPct = clamp01(rawScrollPct);
+    }
+    return {
+        dom: { selector },
+        textQuote,
+        element: {
+            tag: typeof elementRaw.tag === "string" && elementRaw.tag ? elementRaw.tag : "BODY",
+            attrs: toStringRecord(elementRaw.attrs),
+            relBoxPct,
+        },
+        fallback: {
+            scrollPct,
+        },
+    };
+}
 export class PageWorms {
     /**
      * @param {Object} opts
@@ -79,24 +151,33 @@ export class PageWorms {
         this._needsMigration = false;
         this._ui = new WormUI({
             getWormById: (id) => this._findWormById(id),
-            onEdit: (id, data) => this._handleEditFromUI(id, data),
+            onEdit: async (id, data) => {
+                await this._handleEditFromUI(id, data);
+            },
             onDelete: (id) => this._handleDeleteFromUI(id),
         });
         this._onAnyScroll = () => {
             const root = document.documentElement;
             if (!root.classList.contains("pp-scrolling"))
                 root.classList.add("pp-scrolling");
-            clearTimeout(this._scrollTimer);
+            if (this._scrollTimer)
+                clearTimeout(this._scrollTimer);
             this._scrollTimer = setTimeout(() => root.classList.remove("pp-scrolling"), 140);
         };
         this._reposition = null;
-        const storage = this.opts.storage;
-        this.store =
-            storage === "chrome"
-                ? new ChromeStorageAdapter()
-                : storage && typeof storage === "object" && typeof storage.get === "function"
-                    ? storage
-                    : new LocalStorageAdapter();
+        const storageOpt = this.opts.storage;
+        if (storageOpt === "chrome") {
+            this.store = new ChromeStorageAdapter();
+        }
+        else if (storageOpt === "local" || storageOpt === undefined) {
+            this.store = new LocalStorageAdapter();
+        }
+        else if (isStorageAdapter(storageOpt)) {
+            this.store = storageOpt;
+        }
+        else {
+            this.store = new LocalStorageAdapter();
+        }
     }
     /**
      * Initialize the overlay layer, hydrate persisted worms, and start observers.
@@ -104,24 +185,25 @@ export class PageWorms {
     async init() {
         await this.load();
         this._observe();
-        this.renderAll();
+        await this.renderAll();
         this._initHostResizeObserver();
     }
     /** Wire resize/scroll/mutation observers with a throttled render loop. */
     _observe() {
-        this._reposition = throttle(() => {
+        const reposition = throttle(() => {
             if (this._raf)
                 cancelAnimationFrame(this._raf);
-            this._raf = requestAnimationFrame(() => this.renderAll());
+            this._raf = requestAnimationFrame(() => {
+                void this.renderAll();
+            });
         }, DEFAULTS.throttleMs);
-        window.addEventListener("resize", this._reposition);
+        this._reposition = reposition;
+        window.addEventListener("resize", reposition);
         window.addEventListener("scroll", this._onAnyScroll, {
             passive: true,
             capture: true,
         });
-        if (!this._reposition)
-            return;
-        this._resizeObs = new ResizeObserver(this._reposition);
+        this._resizeObs = new ResizeObserver(reposition);
         this._resizeObs.observe(document.documentElement);
         this._mutObs = new MutationObserver((entries) => {
             if (this._isRendering)
@@ -132,19 +214,20 @@ export class PageWorms {
                     [...record.removedNodes].some((node) => this._isManagedNode(node))) {
                     continue;
                 }
-                this._reposition();
+                reposition();
                 break;
             }
         });
-        this._mutObs.observe(document.body, { childList: true, subtree: true });
+        const body = document.body;
+        if (body) {
+            this._mutObs.observe(body, { childList: true, subtree: true });
+        }
     }
     /** Returns true when a mutation target belongs to PageWorms-managed UI. */
     _isManagedNode(node) {
         if (!node)
             return false;
-        let el = node;
-        if (el.nodeType !== 1)
-            el = el.parentElement;
+        const el = node instanceof Element ? node : node.parentElement;
         return !!(el && typeof el.closest === "function" && el.closest(OWNED_SELECTOR));
     }
     /** Lazily create a ResizeObserver that keeps overlay boxes in sync. */
@@ -154,6 +237,8 @@ export class PageWorms {
         this._hostRO = new ResizeObserver((entries) => {
             for (const e of entries) {
                 const hostEl = e.target;
+                if (!(hostEl instanceof HTMLElement))
+                    continue;
                 const containerEl = hostEl.parentElement;
                 if (!containerEl)
                     continue;
@@ -215,7 +300,7 @@ export class PageWorms {
      * @param {number} opts.clickY - clientY for the position relBoxPct
      * @param {Range|null} opts.selection - Optional selection range to create a TextQuote anchor
      */
-    async addWorm({ target, clickX, clickY, selection = null }) {
+    async addWorm({ target, clickX, clickY, selection = null, }) {
         const position = this._makePosition({ target, clickX, clickY, selection });
         const formResult = await this._ui.promptCreate({
             content: "",
@@ -229,11 +314,9 @@ export class PageWorms {
             id: this._generateId(),
             created_at: now,
             updated_at: null,
-            content: formResult.content || "",
-            status: formResult.status === "friends" || formResult.status === "public"
-                ? formResult.status
-                : "private",
-            tags: formResult.tags && formResult.tags.length ? formResult.tags : null,
+            content: formResult.content ?? "",
+            status: this._normalizeStatus(formResult.status),
+            tags: formResult.tags.length ? formResult.tags : null,
             author_id: null,
             position,
             host_url: this.url,
@@ -248,7 +331,7 @@ export class PageWorms {
     }
     /** Load worms for the current canonical URL via the configured storage adapter. */
     async load() {
-        const raw = (await this.store.get(this.url)) || [];
+        const raw = await this.store.get(this.url);
         this._idCounter = 0;
         this._needsMigration = false;
         this.worms = raw.map((w) => this._normalizeWorm(w));
@@ -263,81 +346,54 @@ export class PageWorms {
         this._idCounter += 1;
         return this._idCounter;
     }
-    _normalizeWorm(raw = {}) {
+    _normalizeWorm(raw) {
+        const data = raw && typeof raw === "object" ? raw : {};
         let changed = false;
-        let id = raw?.id;
-        if (typeof id === "number" && Number.isFinite(id)) {
-            this._idCounter = Math.max(this._idCounter, id);
+        const rawId = data.id;
+        let id;
+        if (typeof rawId === "number" && Number.isFinite(rawId)) {
+            id = rawId;
+            this._idCounter = Math.max(this._idCounter, rawId);
         }
-        else if (typeof id === "string" && /^\d+$/.test(id)) {
-            id = Number(id);
-            this._idCounter = Math.max(this._idCounter, id);
+        else if (typeof rawId === "string" && /^\d+$/.test(rawId)) {
+            const parsed = Number(rawId);
+            id = parsed;
+            this._idCounter = Math.max(this._idCounter, parsed);
             changed = true;
         }
         else {
             id = this._generateId();
             changed = true;
         }
-        const created_at = typeof raw?.created_at === "string"
-            ? raw.created_at
+        const created_at = typeof data.created_at === "string"
+            ? data.created_at
             : new Date().toISOString();
-        if (created_at !== raw?.created_at)
+        if (created_at !== data.created_at)
             changed = true;
-        const updated_at = raw?.updated_at === null || typeof raw?.updated_at === "string"
-            ? raw.updated_at
+        const updated_at = data.updated_at === null || typeof data.updated_at === "string"
+            ? data.updated_at
             : null;
-        if (updated_at !== raw?.updated_at)
+        if (updated_at !== data.updated_at)
             changed = true;
-        let status = "private";
-        if (raw?.status === "friends" || raw?.status === "public") {
-            status = raw.status;
-        }
-        else if (raw?.status === "private" || raw?.status === undefined) {
-            // ok
-        }
-        else {
+        const status = this._normalizeStatus(data.status);
+        if (status !== data.status)
             changed = true;
-        }
-        let tags = null;
-        if (Array.isArray(raw?.tags)) {
-            const normalizedTags = raw.tags
-                .map((t) => (typeof t === "string" ? t.trim() : ""))
-                .filter(Boolean);
-            if (normalizedTags.length)
-                tags = normalizedTags;
-            if (normalizedTags.length !== raw.tags.length ||
-                normalizedTags.some((t, idx) => t !== raw.tags[idx])) {
-                changed = true;
-            }
-        }
-        else if (typeof raw?.tags === "string") {
-            const normalizedTags = raw.tags
-                .split(",")
-                .map((t) => t.trim())
-                .filter(Boolean);
-            if (normalizedTags.length)
-                tags = normalizedTags;
+        const tags = this._normalizeTags(data.tags);
+        if (tags !== data.tags)
             changed = true;
-        }
-        else if (raw?.tags != null) {
+        const positionSource = data.position ?? data.anchor ?? null;
+        if (!data.position && data.anchor)
             changed = true;
-        }
-        const position = raw?.position ?? raw?.anchor ?? null;
-        if (!raw?.position && raw?.anchor)
+        const position = normalizePosition(positionSource);
+        const author_id = typeof data.author_id === "number" ? data.author_id : null;
+        if (author_id !== data.author_id)
             changed = true;
-        const author_id = typeof raw?.author_id === "number" ? raw.author_id : null;
-        if (author_id !== raw?.author_id)
+        const host_url = typeof data.host_url === "string" ? data.host_url : (typeof data.url === "string" ? data.url : this.url);
+        if (host_url !== data.host_url)
             changed = true;
-        const host_url = typeof raw?.host_url === "string" ? raw.host_url : raw?.url || this.url;
-        if (host_url !== raw?.host_url)
+        const content = typeof data.content === "string" ? data.content : "";
+        if (content !== data.content)
             changed = true;
-        const content = typeof raw?.content === "string" ? raw.content : "";
-        if (content !== raw?.content)
-            changed = true;
-        if (typeof id !== "number" || !Number.isFinite(id)) {
-            id = this._generateId();
-            changed = true;
-        }
         const worm = {
             id,
             created_at,
@@ -376,9 +432,34 @@ export class PageWorms {
     // ---------------------------------------------------------------------------
     // #region Anchoring Helpers
     // ---------------------------------------------------------------------------
+    _normalizeStatus(value) {
+        if (value === "friends" || value === "public")
+            return value;
+        return "private";
+    }
+    _normalizeTags(value) {
+        if (Array.isArray(value)) {
+            const normalized = value
+                .map((item) => (typeof item === "string" ? item.trim() : ""))
+                .filter(Boolean);
+            return normalized.length ? normalized : null;
+        }
+        if (typeof value === "string") {
+            const normalized = value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean);
+            return normalized.length ? normalized : null;
+        }
+        return null;
+    }
     /** Compose a resilient position anchor from DOM target, click point, and optional selection. */
-    _makePosition({ target, clickX, clickY, selection }) {
-        const el = target?.nodeType === 1 ? target : target?.parentElement;
+    _makePosition({ target, clickX, clickY, selection, }) {
+        const el = target instanceof Element
+            ? target
+            : target && "parentElement" in target
+                ? target.parentElement
+                : null;
         const selector = el ? cssPath(el) : "";
         let textQuote = null;
         if (selection) {
@@ -391,7 +472,10 @@ export class PageWorms {
                 .slice(0, 1024);
             textQuote = { exact, prefix, suffix };
         }
-        const hostEl = el || document.body;
+        const hostEl = (el ??
+            document.body ??
+            document.documentElement ??
+            document.createElement("div"));
         const pct = elementBoxPct(hostEl, clickX, clickY);
         return {
             dom: { selector },
@@ -408,10 +492,10 @@ export class PageWorms {
     _resolve(position) {
         // 0) If both selector and textQuote, try to resolve selector and
         // verify it still contains the quote. If yes, use it as host.
-        if (position?.dom?.selector && position?.textQuote?.exact) {
+        if (position.dom.selector && position.textQuote?.exact) {
             try {
                 const el = document.querySelector(position.dom.selector);
-                if (el &&
+                if (el instanceof HTMLElement &&
                     normalizeText(el.innerText || "").includes(normalizeText(position.textQuote.exact))) {
                     return { hostEl: el };
                 }
@@ -419,45 +503,49 @@ export class PageWorms {
             catch { }
         }
         // 1) TextQuote
-        if (position?.textQuote?.exact) {
+        if (position.textQuote?.exact) {
             const range = findQuoteRange(position.textQuote.exact, position.textQuote.prefix, position.textQuote.suffix, this._textCache);
             if (range) {
                 const rects = range.getClientRects();
                 if (rects.length) {
                     let hostEl = elementForRange(range);
-                    if (hostEl === document.body && position.dom?.selector) {
+                    if (hostEl === document.body && position.dom.selector) {
                         try {
                             const sEl = document.querySelector(position.dom.selector);
-                            if (sEl)
+                            if (sEl instanceof HTMLElement)
                                 hostEl = sEl;
                         }
                         catch { }
                     }
-                    return { hostEl };
+                    return { hostEl: hostEl instanceof HTMLElement ? hostEl : null };
                 }
             }
         }
         // 2) DOM selector
         let hostEl = null;
-        if (position?.dom?.selector) {
+        if (position.dom.selector) {
             try {
-                hostEl = document.querySelector(position.dom.selector);
+                const el = document.querySelector(position.dom.selector);
+                if (el instanceof HTMLElement)
+                    hostEl = el;
             }
             catch { }
         }
         // 3) Tag + stable attrs
         if (!hostEl) {
-            const tag = position?.element?.tag || null;
+            const tag = position.element.tag;
             if (tag) {
-                const cands = Array.from(document.getElementsByTagName(tag));
-                const want = position?.element?.attrs || {};
+                const cands = Array.from(document.getElementsByTagName(tag)).filter((el) => el instanceof HTMLElement);
+                const want = position.element.attrs;
                 hostEl =
                     cands.find((el) => Object.keys(want).every((k) => (el.getAttribute(k) || "") === want[k])) || null;
             }
         }
         // 4) Fallback
-        if (!hostEl)
-            hostEl = document.body;
+        if (!hostEl) {
+            const fallback = document.body ?? document.documentElement;
+            hostEl = fallback instanceof HTMLElement ? fallback : null;
+        }
         return { hostEl };
     }
     // #endregion
@@ -468,13 +556,9 @@ export class PageWorms {
         const worm = this._findWormById(wormId);
         if (!worm)
             return null;
-        worm.content = payload?.content || "";
-        worm.tags =
-            Array.isArray(payload?.tags) && payload.tags.length ? payload.tags : null;
-        worm.status =
-            payload?.status === "friends" || payload?.status === "public"
-                ? payload.status
-                : "private";
+        worm.content = payload.content ?? "";
+        worm.tags = payload.tags.length ? payload.tags : null;
+        worm.status = this._normalizeStatus(payload.status);
         worm.updated_at = new Date().toISOString();
         await this._persist();
         this._logWormEvent("update", worm, { via: "ui" });
@@ -502,7 +586,8 @@ export class PageWorms {
     // ---------------------------------------------------------------------------
     /** Snapshot visible text content to accelerate later TextQuote resolution. */
     _buildTextCache() {
-        const { nodes } = textContentStream(document.body);
+        const root = document.body ?? document;
+        const { nodes } = textContentStream(root);
         const allText = nodes.map((n) => n.text).join("");
         this._textCache = { nodes, allText, stamp: performance.now() };
     }
@@ -527,12 +612,15 @@ export class PageWorms {
             }
             // For current worms, resolve hosts and compute placement
             for (const worm of this.worms) {
-                const { hostEl } = this._resolve(worm.position /*, this._textCache*/);
-                const host = hostEl || document.body;
+                const { hostEl } = this._resolve(worm.position);
+                const fallbackHost = document.body ?? document.documentElement;
+                const host = (hostEl ?? fallbackHost);
                 // Decide container (can host children or not)
                 const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
                 const containerEl = cannotContain
-                    ? host.parentElement || document.body
+                    ? (host.parentElement instanceof HTMLElement
+                        ? host.parentElement
+                        : (document.body ?? host))
                     : host;
                 // Ensure positioning context (read ok)
                 makePositioningContext(containerEl);
@@ -565,7 +653,7 @@ export class PageWorms {
             let wormEl = this.wormEls.get(worm.id);
             if (!wormEl) {
                 wormEl = createWormEl(); // already sets class, aria-label
-                wormEl.dataset.wormId = worm.id;
+                wormEl.dataset.wormId = String(worm.id);
                 this.wormEls.set(worm.id, wormEl);
             }
             // (b) Determine the final parent for this wormEl
@@ -613,26 +701,29 @@ export class PageWorms {
     _drawWorm(worm) {
         injectStyles();
         const { hostEl } = this._resolve(worm.position);
-        const host = hostEl || document.body;
+        const fallbackHost = document.body ?? document.documentElement;
+        const host = (hostEl ?? fallbackHost);
         // Container choice
         const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
         const containerEl = cannotContain
-            ? host.parentElement || document.body
+            ? (host.parentElement instanceof HTMLElement
+                ? host.parentElement
+                : (document.body ?? host))
             : host;
         // Positioning context
         makePositioningContext(containerEl);
         // Box overlay if needed
-        const box = cannotContain
+        const targetContainer = cannotContain
             ? createOrUpdateBox(containerEl, host, uuid)
             : containerEl;
         // Worm
         const wormEl = createWormEl();
-        wormEl.dataset.wormId = worm.id;
+        wormEl.dataset.wormId = String(worm.id);
         const x = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
         const y = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
         wormEl.style.left = x + "%";
         wormEl.style.top = y + "%";
-        (cannotContain ? box : containerEl).appendChild(wormEl);
+        targetContainer.appendChild(wormEl);
         this.wormEls.set(worm.id, wormEl);
         this._ui.wireWormElement(wormEl);
         // Observe host for cheap overlay resync

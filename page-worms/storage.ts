@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * storage.js
  * -----------------------------------------------------------------------------
@@ -18,45 +17,71 @@
  */
 
 import { DEFAULTS } from "./constants.js";
+import type { WormRecord } from "./types.js";
 
-export class LocalStorageAdapter {
+export interface StorageAdapter {
+  get(url: string): Promise<WormRecord[]>;
+  set(url: string, worms: WormRecord[]): Promise<void>;
+}
+
+export class LocalStorageAdapter implements StorageAdapter {
+  private readonly prefix: string;
+
   constructor(prefix = DEFAULTS.storageKeyPrefix) {
     this.prefix = prefix;
   }
-  keyFor(url) {
+
+  keyFor(url: string): string {
     return `${this.prefix}${url}`;
   }
-  async get(url) {
+
+  async get(url: string): Promise<WormRecord[]> {
     try {
-      return JSON.parse(localStorage.getItem(this.keyFor(url)) || "[]");
+      const raw = localStorage.getItem(this.keyFor(url));
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? (parsed as WormRecord[]) : [];
     } catch {
       return [];
     }
   }
-  async set(url, arr) {
-    localStorage.setItem(this.keyFor(url), JSON.stringify(arr));
+
+  async set(url: string, worms: WormRecord[]): Promise<void> {
+    localStorage.setItem(this.keyFor(url), JSON.stringify(worms));
   }
 }
 
-export class ChromeStorageAdapter {
+export class ChromeStorageAdapter implements StorageAdapter {
+  private readonly prefix: string;
+
   constructor(prefix = DEFAULTS.storageKeyPrefix) {
     this.prefix = prefix;
   }
-  keyFor(url) {
+
+  keyFor(url: string): string {
     return `${this.prefix}${url}`;
   }
-  async get(url) {
+
+  async get(url: string): Promise<WormRecord[]> {
     return new Promise((resolve) => {
-      if (!chrome?.storage?.local) return resolve([]);
-      chrome.storage.local.get([this.keyFor(url)], (res) =>
-        resolve(res[this.keyFor(url)] || [])
-      );
+      if (!chrome?.storage?.local) {
+        resolve([]);
+        return;
+      }
+      chrome.storage.local.get([this.keyFor(url)], (res) => {
+        const value = res[this.keyFor(url)] as unknown;
+        resolve(Array.isArray(value) ? (value as WormRecord[]) : []);
+      });
     });
   }
-  async set(url, arr) {
+
+  async set(url: string, worms: WormRecord[]): Promise<void> {
     return new Promise((resolve) => {
-      if (!chrome?.storage?.local) return resolve();
-      chrome.storage.local.set({ [this.keyFor(url)]: arr }, resolve);
+      if (!chrome?.storage?.local) {
+        resolve();
+        return;
+      }
+      chrome.storage.local.set({ [this.keyFor(url)]: worms }, resolve);
     });
   }
 }
