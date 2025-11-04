@@ -15,7 +15,7 @@
  * Notes:
  *   - Callers provide canonical URL string as key.
  */
-import { DEFAULTS } from "./constants.js";
+import { DEFAULTS } from "../constants.js";
 export class LocalStorageAdapter {
     constructor(prefix = DEFAULTS.storageKeyPrefix) {
         this.prefix = prefix;

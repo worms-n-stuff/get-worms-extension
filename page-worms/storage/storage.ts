@@ -1,5 +1,5 @@
 /**
- * storage.js
+ * storage
  * -----------------------------------------------------------------------------
  * Purpose:
  *   Persistence adapters with a tiny async API for portability.
@@ -16,8 +16,8 @@
  *   - Callers provide canonical URL string as key.
  */
 
-import { DEFAULTS } from "./constants.js";
-import type { WormRecord } from "./types.js";
+import { DEFAULTS } from "../constants.js";
+import type { WormRecord } from "../types.js";
 
 export interface StorageAdapter {
   get(url: string): Promise<WormRecord[]>;
@@ -84,4 +84,30 @@ export class ChromeStorageAdapter implements StorageAdapter {
       chrome.storage.local.set({ [this.keyFor(url)]: worms }, resolve);
     });
   }
+}
+
+export type StorageModuleOption = "local" | "chrome" | StorageAdapter;
+
+export function isStorageAdapter(value: unknown): value is StorageAdapter {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as StorageAdapter).get === "function" &&
+    typeof (value as StorageAdapter).set === "function"
+  );
+}
+
+export function createStorageAdapter(
+  option?: StorageModuleOption
+): StorageAdapter {
+  if (!option || option === "local") {
+    return new LocalStorageAdapter();
+  }
+  if (option === "chrome") {
+    return new ChromeStorageAdapter();
+  }
+  if (isStorageAdapter(option)) {
+    return option;
+  }
+  return new LocalStorageAdapter();
 }

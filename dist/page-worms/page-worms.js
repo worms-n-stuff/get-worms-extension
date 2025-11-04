@@ -47,7 +47,7 @@ import { DEFAULTS } from "./constants.js";
 import { uuid, throttle, normalizeText, getCanonicalUrl } from "./utils.js";
 import { cssPath, findQuoteRange, elementBoxPct, selectionContext, stableAttrs, elementForRange, docScrollPct, textContentStream, } from "./dom-anchors.js";
 import { injectStyles } from "./styles.js";
-import { LocalStorageAdapter, ChromeStorageAdapter, } from "./storage.js";
+import { LocalStorageAdapter, ChromeStorageAdapter, } from "./storage/storage.js";
 import { createWormEl, makePositioningContext, createOrUpdateBox, } from "./layer.js";
 import { WormUI } from "./ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback

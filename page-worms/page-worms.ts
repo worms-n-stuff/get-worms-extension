@@ -56,11 +56,11 @@ import {
   textContentStream,
 } from "./dom-anchors.js";
 import { injectStyles } from "./styles.js";
-import {
-  LocalStorageAdapter,
-  ChromeStorageAdapter,
-} from "./storage.js";
-import type { StorageAdapter } from "./storage.js";
+import { createStorageAdapter } from "./storage/storage.js";
+import type {
+  StorageAdapter,
+  StorageModuleOption,
+} from "./storage/storage.js";
 import {
   createWormEl,
   makePositioningContext,
@@ -82,7 +82,7 @@ type RenderPlanItem = {
 };
 
 export type PageWormsOptions = {
-  storage?: "local" | "chrome" | StorageAdapter;
+  storage?: StorageModuleOption;
   enableSelection?: boolean;
 };
 
@@ -105,15 +105,6 @@ type AddWormOptions = {
   clickY: number;
   selection?: Range | null;
 };
-
-function isStorageAdapter(value: unknown): value is StorageAdapter {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as StorageAdapter).get === "function" &&
-    typeof (value as StorageAdapter).set === "function"
-  );
-}
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -256,16 +247,7 @@ export class PageWorms {
 
     this._reposition = null;
 
-    const storageOpt = this.opts.storage;
-    if (storageOpt === "chrome") {
-      this.store = new ChromeStorageAdapter();
-    } else if (storageOpt === "local" || storageOpt === undefined) {
-      this.store = new LocalStorageAdapter();
-    } else if (isStorageAdapter(storageOpt)) {
-      this.store = storageOpt;
-    } else {
-      this.store = new LocalStorageAdapter();
-    }
+    this.store = createStorageAdapter(this.opts.storage);
   }
 
   /**
