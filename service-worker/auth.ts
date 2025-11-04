@@ -123,3 +123,5 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   // Indicate we will respond asynchronously
   return true;
 });
+
+export {};

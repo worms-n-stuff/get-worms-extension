@@ -1,0 +1,26 @@
+{
+  "name": "get-worm",
+  "version": "1.0.0",
+  "description": "Browser extension that lets users add and sync site-specific comments.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "dev": "tsc -w --preserveWatchOutput"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/worms-n-stuff/get-worms-extension.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "GPL-3.0-or-later",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/worms-n-stuff/get-worms-extension/issues"
+  },
+  "homepage": "https://github.com/worms-n-stuff/get-worms-extension#readme",
+  "devDependencies": {
+    "@types/chrome": "^0.1.27",
+    "typescript": "^5.6.3"
+  }
+}

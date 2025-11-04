@@ -49,3 +49,5 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (btn) btn.style.display = "none";
   }
 });
+
+export {};

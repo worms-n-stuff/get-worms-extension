@@ -6,7 +6,14 @@
  */
 const KEY = "pw_enabled"; // global ON/OFF
 const MENU_ID_ADD_WORM = "worms:add";
-const MENU_CONTEXTS = ["page", "selection", "image", "link", "video", "audio"];
+const MENU_CONTEXTS = [
+  chrome.contextMenus.ContextType.PAGE,
+  chrome.contextMenus.ContextType.SELECTION,
+  chrome.contextMenus.ContextType.IMAGE,
+  chrome.contextMenus.ContextType.LINK,
+  chrome.contextMenus.ContextType.VIDEO,
+  chrome.contextMenus.ContextType.AUDIO,
+] as const;
 
 chrome.runtime.onInstalled.addListener(async () => {
   await ensureToggleDefault();
@@ -45,7 +52,7 @@ function createContextMenu() {
     chrome.contextMenus.create({
       id: MENU_ID_ADD_WORM,
       title: "Add Worm",
-      contexts: MENU_CONTEXTS,
+      contexts: MENU_CONTEXTS as unknown as chrome.contextMenus.CreateProperties["contexts"],
     });
   } catch {
     // Ignore "already exists" errors on reloads

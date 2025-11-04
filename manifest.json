@@ -16,24 +16,24 @@
   "permissions": ["storage", "tabs", "activeTab", "scripting", "contextMenus"],
   "host_permissions": ["https://get-worms.com/*"],
   "background": {
-    "service_worker": "service-worker/background.js",
+    "service_worker": "dist/service-worker/background.js",
     "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["https://get-worms.com/*", "http://localhost:5173/*"],
-      "js": ["content-script/auth.js"],
+      "js": ["dist/content-script/auth.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["content-script/worm-module.js"],
+      "js": ["dist/content-script/worm-module.js"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-worms/*.js", "page-worms/*.css"],
+      "resources": ["dist/page-worms/*.js", "page-worms/*.css"],
       "matches": ["<all_urls>"]
     }
   ]

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * dom-anchors.js
  * -----------------------------------------------------------------------------
@@ -36,7 +37,8 @@ export function cssPath(el) {
       break;
     }
     let tag = el.tagName.toLowerCase();
-    const stableAttrs = Array.from(el.attributes)
+    const attrs = Array.from(el.attributes) as Attr[];
+    const stableAttrs = attrs
       .filter((a) => /^data-|^aria-|^role$/.test(a.name))
       .slice(0, 2)
       .map((a) => `[${a.name}="${a.value}"]`)
@@ -268,15 +270,18 @@ export function selectionContext(range, max) {
 }
 
 /** Whitelist of stable attributes to capture (truncated to keep anchors light). */
-export function stableAttrs(el) {
-  if (!el || el.nodeType !== 1) return {};
-  const out = {};
-  for (const a of el.attributes) {
-    if (/^(data-|aria-|role$|alt$|title$)/.test(a.name))
+export function stableAttrs(el: Element): Record<string, string> {
+  if (!el || el.nodeType !== 1) return {} as Record<string, string>;
+  const out: Record<string, string> = {};
+  for (const a of Array.from(el.attributes) as Attr[]) {
+    if (/^(data-|aria-|role$|alt$|title$)/.test(a.name)) {
       out[a.name] = a.value.slice(0, 256);
+    }
   }
-  if (el.tagName === "IMG" && el.getAttribute("src"))
-    out.src = el.getAttribute("src");
+  if (el.tagName === "IMG") {
+    const src = el.getAttribute("src");
+    if (src) out.src = src;
+  }
   return out;
 }
 

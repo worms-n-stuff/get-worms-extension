@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * page-worms.js
  * -----------------------------------------------------------------------------
@@ -62,7 +63,62 @@ import { WormUI } from "./ui.js";
 
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
 
-class PageWorms {
+type WormStatus = "private" | "friends" | "public";
+
+type WormRecord = {
+  id: number;
+  created_at: string;
+  updated_at: string | null;
+  content: string;
+  status: WormStatus;
+  tags: string[] | null;
+  author_id: number | null;
+  position: any;
+  host_url: string;
+};
+
+type StorageAdapter =
+  | LocalStorageAdapter
+  | ChromeStorageAdapter
+  | {
+      get(url: string): Promise<any>;
+      set(url: string, worms: WormRecord[]): Promise<void>;
+    };
+
+type TextCache = {
+  nodes: Array<{ node: Node; text: string; start: number; end: number }>;
+  allText: string;
+  stamp: number;
+};
+
+type RenderPlanItem = {
+  worm: WormRecord;
+  host: Element;
+  cannotContain: boolean;
+  containerEl: Element;
+  xPct: number;
+  yPct: number;
+};
+
+export class PageWorms {
+  private _isRendering: boolean;
+  private opts: { storage?: unknown; enableSelection: boolean };
+  private url: string;
+  private worms: WormRecord[];
+  private wormEls: Map<number, HTMLElement>;
+  private _resizeObs: ResizeObserver | null;
+  private _mutObs: MutationObserver | null;
+  private _hostRO: ResizeObserver | null;
+  private _scrollTimer: ReturnType<typeof setTimeout> | null;
+  private _hostByWorm: Map<number, Element>;
+  private _textCache: TextCache | null;
+  private _raf: number | null;
+  private _idCounter: number;
+  private _needsMigration: boolean;
+  private _ui: WormUI;
+  private _onAnyScroll: () => void;
+  private store: StorageAdapter;
+  private _reposition: (() => void) | null;
   /**
    * @param {Object} opts
    * @param {"local"|"chrome"|Object} opts.storage "local" (default), "chrome", or custom {get,set}
@@ -104,12 +160,14 @@ class PageWorms {
       );
     };
 
-    const storage = this.opts.storage;
+    this._reposition = null;
+
+    const storage = this.opts.storage as unknown;
     this.store =
       storage === "chrome"
         ? new ChromeStorageAdapter()
-        : storage && typeof storage.get === "function"
-        ? storage
+        : storage && typeof storage === "object" && typeof (storage as any).get === "function"
+        ? (storage as StorageAdapter)
         : new LocalStorageAdapter();
   }
 
@@ -135,6 +193,8 @@ class PageWorms {
       passive: true,
       capture: true,
     });
+
+    if (!this._reposition) return;
 
     this._resizeObs = new ResizeObserver(this._reposition);
     this._resizeObs.observe(document.documentElement);
@@ -169,10 +229,10 @@ class PageWorms {
     if (this._hostRO) return;
     this._hostRO = new ResizeObserver((entries) => {
       for (const e of entries) {
-        const hostEl = e.target,
-          containerEl = hostEl.parentElement;
+        const hostEl = e.target as HTMLElement;
+        const containerEl = hostEl.parentElement as HTMLElement | null;
         if (!containerEl) continue;
-        const box = containerEl.querySelector(
+        const box = containerEl.querySelector<HTMLElement>(
           `:scope > .pp-box[data-for='${hostEl.dataset.ppId}']`
         );
         if (!box) continue;
@@ -565,7 +625,7 @@ class PageWorms {
       this._buildTextCache();
 
       // Phase A: build a plan (reads)
-      const plan = [];
+      const plan: RenderPlanItem[] = [];
       const nextIds = new Set(this.worms.map((w) => w.id));
 
       // Remove stale elements (ids no longer present)
@@ -609,7 +669,7 @@ class PageWorms {
   }
 
   /** Apply a precomputed render plan, reusing DOM nodes and minimizing writes. */
-  _applyPlan(plan) {
+  _applyPlan(plan: RenderPlanItem[]) {
     const activeIds = new Set(this.worms.map((w) => w.id));
 
     for (const item of plan) {
@@ -723,4 +783,10 @@ export async function attachPageWorms(options = {}) {
   await pp.init();
   window.__pageWorms = pp;
   return pp;
+}
+
+declare global {
+  interface Window {
+    __pageWorms?: PageWorms;
+  }
 }
