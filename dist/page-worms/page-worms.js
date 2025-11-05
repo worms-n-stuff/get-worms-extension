@@ -47,16 +47,10 @@ import { DEFAULTS } from "./constants.js";
 import { uuid, throttle, normalizeText, getCanonicalUrl } from "./utils.js";
 import { cssPath, findQuoteRange, elementBoxPct, selectionContext, stableAttrs, elementForRange, docScrollPct, textContentStream, } from "./dom-anchors.js";
 import { injectStyles } from "./styles.js";
-import { LocalStorageAdapter, ChromeStorageAdapter, } from "./storage/storage.js";
+import { createStorageAdapter } from "./storage/storage.js";
 import { createWormEl, makePositioningContext, createOrUpdateBox, } from "./layer.js";
 import { WormUI } from "./ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
-function isStorageAdapter(value) {
-    return (typeof value === "object" &&
-        value !== null &&
-        typeof value.get === "function" &&
-        typeof value.set === "function");
-}
 function clamp01(value) {
     if (!Number.isFinite(value))
         return 0;
@@ -165,19 +159,7 @@ export class PageWorms {
             this._scrollTimer = setTimeout(() => root.classList.remove("pp-scrolling"), 140);
         };
         this._reposition = null;
-        const storageOpt = this.opts.storage;
-        if (storageOpt === "chrome") {
-            this.store = new ChromeStorageAdapter();
-        }
-        else if (storageOpt === "local" || storageOpt === undefined) {
-            this.store = new LocalStorageAdapter();
-        }
-        else if (isStorageAdapter(storageOpt)) {
-            this.store = storageOpt;
-        }
-        else {
-            this.store = new LocalStorageAdapter();
-        }
+        this.store = createStorageAdapter(this.opts.storage);
     }
     /**
      * Initialize the overlay layer, hydrate persisted worms, and start observers.

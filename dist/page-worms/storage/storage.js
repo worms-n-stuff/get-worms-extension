@@ -68,3 +68,21 @@ export class ChromeStorageAdapter {
         });
     }
 }
+export function isStorageAdapter(value) {
+    return (typeof value === "object" &&
+        value !== null &&
+        typeof value.get === "function" &&
+        typeof value.set === "function");
+}
+export function createStorageAdapter(option) {
+    if (!option || option === "local") {
+        return new LocalStorageAdapter();
+    }
+    if (option === "chrome") {
+        return new ChromeStorageAdapter();
+    }
+    if (isStorageAdapter(option)) {
+        return option;
+    }
+    return new LocalStorageAdapter();
+}
