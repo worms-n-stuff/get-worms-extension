@@ -8,7 +8,7 @@
  *   - init(): Bootstraps styles, storage load, observers, and initial render.
  *   - addWorm(opts): Create a new worm at given click/selection.
  *   - renderAll(): Redraw all worms after DOM changes/resizes.
- *   - _resolve(position): Re-anchor via TextQuote -> selector -> tag+attrs -> body.
+ *   - Anchoring adapter: Re-anchor via TextQuote -> selector -> tag+attrs -> body.
  *   - _observe(): Resize/scroll/mutation listeners with throttled rerender.
  *   - clearScreen(): Remove rendered worms and tear down DOM overlays.
  *   - destroy(): Cleanup listeners/observers and DOM artifacts.
@@ -23,6 +23,7 @@
  *
  * Options:
  *   - storage: "local" | "chrome" | { get(url), set(url, arr) }
+ *   - anchoring: "dom" | AnchoringAdapter
  *   - enableSelection: boolean (store TextQuote when selection exists)
  *
  * Data Model (per worm):
@@ -44,9 +45,9 @@
  *   }
  */
 import { DEFAULTS } from "./constants.js";
-import { uuid, throttle, normalizeText, getCanonicalUrl } from "./utils.js";
-import { cssPath, findQuoteRange, elementBoxPct, selectionContext, stableAttrs, elementForRange, docScrollPct, textContentStream, } from "./dom-anchors.js";
+import { uuid, throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
+import { createAnchoringAdapter } from "./anchoring/index.js";
 import { createStorageAdapter } from "./storage/storage.js";
 import { createWormEl, makePositioningContext, createOrUpdateBox, } from "./layer.js";
 import { WormUI } from "./ui.js";
@@ -139,7 +140,7 @@ export class PageWorms {
         this._hostRO = null;
         this._scrollTimer = null;
         this._hostByWorm = new Map(); // id -> resolved hostEl (for diffing)
-        this._textCache = null; // { nodes, allText, stamp }
+        this._anchorCache = null;
         this._raf = null;
         this._idCounter = 0;
         this._needsMigration = false;
@@ -159,6 +160,7 @@ export class PageWorms {
             this._scrollTimer = setTimeout(() => root.classList.remove("pp-scrolling"), 140);
         };
         this._reposition = null;
+        this.anchoring = createAnchoringAdapter(this.opts.anchoring);
         this.store = createStorageAdapter(this.opts.storage);
     }
     /**
@@ -260,6 +262,7 @@ export class PageWorms {
         this.wormEls.clear();
         this.worms = [];
         this._hostByWorm.clear();
+        this._anchorCache = null;
         this._ui.reset();
         // Aggressive sweep
         try {
@@ -283,7 +286,12 @@ export class PageWorms {
      * @param {Range|null} opts.selection - Optional selection range to create a TextQuote anchor
      */
     async addWorm({ target, clickX, clickY, selection = null, }) {
-        const position = this._makePosition({ target, clickX, clickY, selection });
+        const position = this.anchoring.createPosition({
+            target,
+            clickX,
+            clickY,
+            selection: this.opts.enableSelection && selection ? selection : null,
+        });
         const formResult = await this._ui.promptCreate({
             content: "",
             tags: [],
@@ -435,101 +443,6 @@ export class PageWorms {
         }
         return null;
     }
-    /** Compose a resilient position anchor from DOM target, click point, and optional selection. */
-    _makePosition({ target, clickX, clickY, selection, }) {
-        const el = target instanceof Element
-            ? target
-            : target && "parentElement" in target
-                ? target.parentElement
-                : null;
-        const selector = el ? cssPath(el) : "";
-        let textQuote = null;
-        if (selection) {
-            const { prefix, suffix } = selectionContext(selection, DEFAULTS.maxTextContext);
-            const exact = selection
-                .toString()
-                .normalize("NFC")
-                .replace(/\s+/g, " ")
-                .trim()
-                .slice(0, 1024);
-            textQuote = { exact, prefix, suffix };
-        }
-        const hostEl = (el ??
-            document.body ??
-            document.documentElement ??
-            document.createElement("div"));
-        const pct = elementBoxPct(hostEl, clickX, clickY);
-        return {
-            dom: { selector },
-            textQuote, // may be null
-            element: {
-                tag: hostEl?.tagName || "BODY",
-                attrs: stableAttrs(hostEl),
-                relBoxPct: { x: pct.x, y: pct.y },
-            },
-            fallback: { scrollPct: docScrollPct() },
-        };
-    }
-    /** Resolve a stored anchor back to a live host element using multiple fallbacks. */
-    _resolve(position) {
-        // 0) If both selector and textQuote, try to resolve selector and
-        // verify it still contains the quote. If yes, use it as host.
-        if (position.dom.selector && position.textQuote?.exact) {
-            try {
-                const el = document.querySelector(position.dom.selector);
-                if (el instanceof HTMLElement &&
-                    normalizeText(el.innerText || "").includes(normalizeText(position.textQuote.exact))) {
-                    return { hostEl: el };
-                }
-            }
-            catch { }
-        }
-        // 1) TextQuote
-        if (position.textQuote?.exact) {
-            const range = findQuoteRange(position.textQuote.exact, position.textQuote.prefix, position.textQuote.suffix, this._textCache);
-            if (range) {
-                const rects = range.getClientRects();
-                if (rects.length) {
-                    let hostEl = elementForRange(range);
-                    if (hostEl === document.body && position.dom.selector) {
-                        try {
-                            const sEl = document.querySelector(position.dom.selector);
-                            if (sEl instanceof HTMLElement)
-                                hostEl = sEl;
-                        }
-                        catch { }
-                    }
-                    return { hostEl: hostEl instanceof HTMLElement ? hostEl : null };
-                }
-            }
-        }
-        // 2) DOM selector
-        let hostEl = null;
-        if (position.dom.selector) {
-            try {
-                const el = document.querySelector(position.dom.selector);
-                if (el instanceof HTMLElement)
-                    hostEl = el;
-            }
-            catch { }
-        }
-        // 3) Tag + stable attrs
-        if (!hostEl) {
-            const tag = position.element.tag;
-            if (tag) {
-                const cands = Array.from(document.getElementsByTagName(tag)).filter((el) => el instanceof HTMLElement);
-                const want = position.element.attrs;
-                hostEl =
-                    cands.find((el) => Object.keys(want).every((k) => (el.getAttribute(k) || "") === want[k])) || null;
-            }
-        }
-        // 4) Fallback
-        if (!hostEl) {
-            const fallback = document.body ?? document.documentElement;
-            hostEl = fallback instanceof HTMLElement ? fallback : null;
-        }
-        return { hostEl };
-    }
     // #endregion
     // ---------------------------------------------------------------------------
     // #region UI Delegates
@@ -566,21 +479,14 @@ export class PageWorms {
     // ---------------------------------------------------------------------------
     // #region Rendering Pipeline
     // ---------------------------------------------------------------------------
-    /** Snapshot visible text content to accelerate later TextQuote resolution. */
-    _buildTextCache() {
-        const root = document.body ?? document;
-        const { nodes } = textContentStream(root);
-        const allText = nodes.map((n) => n.text).join("");
-        this._textCache = { nodes, allText, stamp: performance.now() };
-    }
     /** Re-render every worm, batching DOM writes behind requestAnimationFrame. */
     async renderAll() {
         this._isRendering = true;
         try {
             // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
             injectStyles();
-            // build text cache per render
-            this._buildTextCache();
+            // rebuild anchoring cache per render
+            this._anchorCache = this.anchoring.buildTextCache();
             // Phase A: build a plan (reads)
             const plan = [];
             const nextIds = new Set(this.worms.map((w) => w.id));
@@ -594,7 +500,7 @@ export class PageWorms {
             }
             // For current worms, resolve hosts and compute placement
             for (const worm of this.worms) {
-                const { hostEl } = this._resolve(worm.position);
+                const { hostEl } = this.anchoring.resolvePosition(worm.position, this._anchorCache);
                 const fallbackHost = document.body ?? document.documentElement;
                 const host = (hostEl ?? fallbackHost);
                 // Decide container (can host children or not)
@@ -682,7 +588,7 @@ export class PageWorms {
     /** Render a single worm immediately (used for freshly created annotations). */
     _drawWorm(worm) {
         injectStyles();
-        const { hostEl } = this._resolve(worm.position);
+        const { hostEl } = this.anchoring.resolvePosition(worm.position, this._anchorCache);
         const fallbackHost = document.body ?? document.documentElement;
         const host = (hostEl ?? fallbackHost);
         // Container choice

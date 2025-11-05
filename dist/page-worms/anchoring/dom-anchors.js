@@ -1,5 +1,5 @@
 /**
- * dom-anchors.js
+ * dom-anchors.ts
  * -----------------------------------------------------------------------------
  * Purpose:
  *   DOM-anchoring helpers that resolve stable references for worms.
@@ -22,7 +22,8 @@
  *   - Avoid reading from script/style/noscript/template nodes.
  *   - Keep logic best-effort and fast; the actual location algorithm combines multiple anchors.
  */
-import { normalizeText } from "./utils.js";
+import { DEFAULTS } from "../constants.js";
+import { normalizeText } from "../utils.js";
 /** Resilient CSS path (avoids ephemeral classes). */
 export function cssPath(el) {
     if (!el || el.nodeType !== Node.ELEMENT_NODE)
@@ -290,4 +291,102 @@ export function docScrollPct() {
     const doc = document.documentElement;
     const h = doc.scrollHeight - doc.clientHeight;
     return h <= 0 ? 0 : doc.scrollTop / h;
+}
+class DomAnchoringAdapter {
+    buildTextCache() {
+        const root = document.body ?? document;
+        const { nodes } = textContentStream(root);
+        const allText = nodes.map((n) => n.text).join("");
+        return { nodes, allText, stamp: performance.now() };
+    }
+    createPosition({ target, clickX, clickY, selection, }) {
+        const el = target instanceof Element
+            ? target
+            : target && "parentElement" in target
+                ? target.parentElement
+                : null;
+        const selector = el ? cssPath(el) : "";
+        let textQuote = null;
+        if (selection) {
+            const { prefix, suffix } = selectionContext(selection, DEFAULTS.maxTextContext);
+            const exact = selection
+                .toString()
+                .normalize("NFC")
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 1024);
+            textQuote = { exact, prefix, suffix };
+        }
+        const hostEl = (el ??
+            document.body ??
+            document.documentElement ??
+            document.createElement("div"));
+        const pct = elementBoxPct(hostEl, clickX, clickY);
+        return {
+            dom: { selector },
+            textQuote,
+            element: {
+                tag: hostEl?.tagName || "BODY",
+                attrs: stableAttrs(hostEl),
+                relBoxPct: { x: pct.x, y: pct.y },
+            },
+            fallback: { scrollPct: docScrollPct() },
+        };
+    }
+    resolvePosition(position, cache) {
+        if (position.dom.selector && position.textQuote?.exact) {
+            try {
+                const el = document.querySelector(position.dom.selector);
+                if (el instanceof HTMLElement &&
+                    normalizeText(el.innerText || "").includes(normalizeText(position.textQuote.exact))) {
+                    return { hostEl: el };
+                }
+            }
+            catch { }
+        }
+        if (position.textQuote?.exact) {
+            const range = findQuoteRange(position.textQuote.exact, position.textQuote.prefix, position.textQuote.suffix, cache);
+            if (range) {
+                const rects = range.getClientRects();
+                if (rects.length) {
+                    let hostEl = elementForRange(range);
+                    if (hostEl === document.body && position.dom.selector) {
+                        try {
+                            const sEl = document.querySelector(position.dom.selector);
+                            if (sEl instanceof HTMLElement)
+                                hostEl = sEl;
+                        }
+                        catch { }
+                    }
+                    return { hostEl: hostEl instanceof HTMLElement ? hostEl : null };
+                }
+            }
+        }
+        let hostEl = null;
+        if (position.dom.selector) {
+            try {
+                const el = document.querySelector(position.dom.selector);
+                if (el instanceof HTMLElement)
+                    hostEl = el;
+            }
+            catch { }
+        }
+        if (!hostEl) {
+            const tag = position.element.tag;
+            if (tag) {
+                const cands = Array.from(document.getElementsByTagName(tag)).filter((el) => el instanceof HTMLElement);
+                const want = position.element.attrs;
+                hostEl =
+                    cands.find((el) => Object.keys(want).every((k) => (el.getAttribute(k) || "") === want[k])) || null;
+            }
+        }
+        if (!hostEl) {
+            const fallback = document.body ?? document.documentElement;
+            hostEl = fallback instanceof HTMLElement ? fallback : null;
+        }
+        return { hostEl };
+    }
+}
+export function createDomAnchoringAdapter() {
+    return new DomAnchoringAdapter();
 }
