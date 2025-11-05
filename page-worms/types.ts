@@ -1,16 +1,12 @@
-/**
- * Shared type definitions for the page-worms modules.
- */
-
 export type WormStatus = "private" | "friends" | "public";
 
-export type TextQuoteAnchor = {
+type TextQuoteAnchor = {
   exact: string;
   prefix: string;
   suffix: string;
 };
 
-export type ElementBoxAnchor = {
+type ElementBoxAnchor = {
   tag: string;
   attrs: Record<string, string>;
   relBoxPct: {

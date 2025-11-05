@@ -94,10 +94,7 @@
         if (!isContextAlive())
             return null;
         if (!instance && attachPageWormsFn) {
-            const created = await attachPageWormsFn({
-                storage: "chrome",
-                enableSelection: true,
-            });
+            const created = await attachPageWormsFn();
             if (!isContextAlive())
                 return null;
             instance = created;

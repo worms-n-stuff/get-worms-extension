@@ -5,8 +5,8 @@
  *   Persistence adapters with a tiny async API for portability.
  *
  * Responsibilities:
- *   - LocalStorageAdapter: JSON encode/decode per-page worms.
- *   - ChromeStorageAdapter: Chrome extension storage parity.
+ *   - LocalStorageAdapter: Generic local storage.
+ *   - ChromeStorageAdapter: Local storage for chrome extensions.
  *
  * Adapter API:
  *   - get(url): Promise<Array> -> return array of worm records for url.
@@ -15,8 +15,9 @@
  * Notes:
  *   - Callers provide canonical URL string as key.
  */
+// global config
 import { DEFAULTS } from "../constants.js";
-export class LocalStorageAdapter {
+class LocalStorageAdapter {
     constructor(prefix = DEFAULTS.storageKeyPrefix) {
         this.prefix = prefix;
     }
@@ -39,7 +40,7 @@ export class LocalStorageAdapter {
         localStorage.setItem(this.keyFor(url), JSON.stringify(worms));
     }
 }
-export class ChromeStorageAdapter {
+class ChromeStorageAdapter {
     constructor(prefix = DEFAULTS.storageKeyPrefix) {
         this.prefix = prefix;
     }
@@ -68,21 +69,9 @@ export class ChromeStorageAdapter {
         });
     }
 }
-export function isStorageAdapter(value) {
-    return (typeof value === "object" &&
-        value !== null &&
-        typeof value.get === "function" &&
-        typeof value.set === "function");
-}
-export function createStorageAdapter(option) {
-    if (!option || option === "local") {
-        return new LocalStorageAdapter();
-    }
-    if (option === "chrome") {
+export function createStorageAdapter(storageOption = "chrome") {
+    if (storageOption === "chrome") {
         return new ChromeStorageAdapter();
-    }
-    if (isStorageAdapter(option)) {
-        return option;
     }
     return new LocalStorageAdapter();
 }

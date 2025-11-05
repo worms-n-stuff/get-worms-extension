@@ -20,35 +20,13 @@
  * Public API:
  *   - class PageWorms
  *   - async function attachPageWorms(options): convenience bootstrap (exposes window.__pageWorms)
- *
- * Options:
- *   - storage: "local" | "chrome" | { get(url), set(url, arr) }
- *   - anchoring: "dom" | AnchoringAdapter
- *   - enableSelection: boolean (store TextQuote when selection exists)
- *
- * Data Model (per worm):
- *   {
- *     id: number;
- *     created_at: string;
- *     updated_at: string | null;
- *     content: string;
- *     status: "private" | "friends" | "public";
- *     tags: string[] | null;
- *     author_id: number | null;
- *     position: {
- *       dom: { selector },
- *       textQuote?: { exact, prefix, suffix },
- *       element: { tag, attrs, relBoxPct: { x, y } },
- *       fallback: { scrollPct }
- *     };
- *     host_url: string;
- *   }
  */
+// Adapters
+import { createAnchoringAdapter, } from "./anchoring/index.js";
+import { createStorageAdapter, } from "./storage/index.js";
 import { DEFAULTS } from "./constants.js";
 import { uuid, throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
-import { createAnchoringAdapter } from "./anchoring/index.js";
-import { createStorageAdapter } from "./storage/storage.js";
 import { createWormEl, makePositioningContext, createOrUpdateBox, } from "./layer.js";
 import { WormUI } from "./ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
@@ -73,13 +51,17 @@ function toStringRecord(value) {
     return out;
 }
 function normalizePosition(raw) {
-    const obj = (raw && typeof raw === "object") ? raw : {};
-    const dom = (obj.dom && typeof obj.dom === "object" ? obj.dom : null);
+    const obj = raw && typeof raw === "object" ? raw : {};
+    const dom = obj.dom && typeof obj.dom === "object"
+        ? obj.dom
+        : null;
     const selector = typeof dom?.selector === "string" ? dom.selector : "";
     const textQuoteRaw = obj.textQuote && typeof obj.textQuote === "object"
         ? obj.textQuote
         : null;
-    const textQuote = textQuoteRaw && typeof textQuoteRaw.exact === "string" && textQuoteRaw.exact.trim()
+    const textQuote = textQuoteRaw &&
+        typeof textQuoteRaw.exact === "string" &&
+        textQuoteRaw.exact.trim()
         ? {
             exact: textQuoteRaw.exact,
             prefix: typeof textQuoteRaw.prefix === "string" ? textQuoteRaw.prefix : "",
@@ -110,7 +92,9 @@ function normalizePosition(raw) {
         dom: { selector },
         textQuote,
         element: {
-            tag: typeof elementRaw.tag === "string" && elementRaw.tag ? elementRaw.tag : "BODY",
+            tag: typeof elementRaw.tag === "string" && elementRaw.tag
+                ? elementRaw.tag
+                : "BODY",
             attrs: toStringRecord(elementRaw.attrs),
             relBoxPct,
         },
@@ -120,18 +104,12 @@ function normalizePosition(raw) {
     };
 }
 export class PageWorms {
-    /**
-     * @param {Object} opts
-     * @param {"local"|"chrome"|Object} opts.storage "local" (default), "chrome", or custom {get,set}
-     * @param {boolean} opts.enableSelection If true, store TextQuote for current selection
-     */
     // ---------------------------------------------------------------------------
     // #region Lifecycle & Observers
     // ---------------------------------------------------------------------------
-    constructor(opts = {}) {
+    constructor(storageOption) {
         injectStyles();
         this._isRendering = false;
-        this.opts = { enableSelection: true, ...opts };
         this.url = getCanonicalUrl();
         this.worms = [];
         this.wormEls = new Map();
@@ -160,8 +138,8 @@ export class PageWorms {
             this._scrollTimer = setTimeout(() => root.classList.remove("pp-scrolling"), 140);
         };
         this._reposition = null;
-        this.anchoring = createAnchoringAdapter(this.opts.anchoring);
-        this.store = createStorageAdapter(this.opts.storage);
+        this.anchoringAdapter = createAnchoringAdapter();
+        this.storageAdapter = createStorageAdapter(storageOption);
     }
     /**
      * Initialize the overlay layer, hydrate persisted worms, and start observers.
@@ -212,7 +190,9 @@ export class PageWorms {
         if (!node)
             return false;
         const el = node instanceof Element ? node : node.parentElement;
-        return !!(el && typeof el.closest === "function" && el.closest(OWNED_SELECTOR));
+        return !!(el &&
+            typeof el.closest === "function" &&
+            el.closest(OWNED_SELECTOR));
     }
     /** Lazily create a ResizeObserver that keeps overlay boxes in sync. */
     _initHostResizeObserver() {
@@ -279,18 +259,13 @@ export class PageWorms {
     // ---------------------------------------------------------------------------
     /**
      * Programmatically add a worm using either a selection or a click point.
-     * @param {Object} opts
-     * @param {Element} opts.target - Element that received the context click (or selection ancestor)
-     * @param {number} opts.clickX - clientX for the position relBoxPct
-     * @param {number} opts.clickY - clientY for the position relBoxPct
-     * @param {Range|null} opts.selection - Optional selection range to create a TextQuote anchor
      */
     async addWorm({ target, clickX, clickY, selection = null, }) {
-        const position = this.anchoring.createPosition({
+        const position = this.anchoringAdapter.createPosition({
             target,
             clickX,
             clickY,
-            selection: this.opts.enableSelection && selection ? selection : null,
+            selection,
         });
         const formResult = await this._ui.promptCreate({
             content: "",
@@ -321,7 +296,7 @@ export class PageWorms {
     }
     /** Load worms for the current canonical URL via the configured storage adapter. */
     async load() {
-        const raw = await this.store.get(this.url);
+        const raw = await this.storageAdapter.get(this.url);
         this._idCounter = 0;
         this._needsMigration = false;
         this.worms = raw.map((w) => this._normalizeWorm(w));
@@ -330,12 +305,57 @@ export class PageWorms {
     }
     /** Persist the in-memory worm list for the current page. */
     async _persist() {
-        await this.store.set(this.url, this.worms);
+        await this.storageAdapter.set(this.url, this.worms);
     }
     _generateId() {
         this._idCounter += 1;
         return this._idCounter;
     }
+    _findWormById(id) {
+        if (typeof id !== "number" || !Number.isFinite(id))
+            return null;
+        return this.worms.find((w) => w.id === id) || null;
+    }
+    /** Console instrumentation helper for creation/render lifecycle events. */
+    _logWormEvent(action, worm, extra = {}) {
+        try {
+            console.log("[PageWorms]", {
+                action,
+                id: worm?.id,
+                url: this?.url,
+                created_at: worm?.created_at,
+                position: worm?.position,
+                ...extra,
+            });
+        }
+        catch { }
+    }
+    // #endregion
+    // ---------------------------------------------------------------------------
+    // #region Normalization
+    // ---------------------------------------------------------------------------
+    _normalizeStatus(value) {
+        if (value === "friends" || value === "public")
+            return value;
+        return "private";
+    }
+    _normalizeTags(value) {
+        if (Array.isArray(value)) {
+            const normalized = value
+                .map((item) => (typeof item === "string" ? item.trim() : ""))
+                .filter(Boolean);
+            return normalized.length ? normalized : null;
+        }
+        if (typeof value === "string") {
+            const normalized = value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean);
+            return normalized.length ? normalized : null;
+        }
+        return null;
+    }
+    // TODO: this is probably not needed. Also investigate if other _normalize functions are needed.
     _normalizeWorm(raw) {
         const data = raw && typeof raw === "object" ? raw : {};
         let changed = false;
@@ -378,7 +398,11 @@ export class PageWorms {
         const author_id = typeof data.author_id === "number" ? data.author_id : null;
         if (author_id !== data.author_id)
             changed = true;
-        const host_url = typeof data.host_url === "string" ? data.host_url : (typeof data.url === "string" ? data.url : this.url);
+        const host_url = typeof data.host_url === "string"
+            ? data.host_url
+            : typeof data.url === "string"
+                ? data.url
+                : this.url;
         if (host_url !== data.host_url)
             changed = true;
         const content = typeof data.content === "string" ? data.content : "";
@@ -398,50 +422,6 @@ export class PageWorms {
         if (changed)
             this._needsMigration = true;
         return worm;
-    }
-    _findWormById(id) {
-        if (typeof id !== "number" || !Number.isFinite(id))
-            return null;
-        return this.worms.find((w) => w.id === id) || null;
-    }
-    /** Console instrumentation helper for creation/render lifecycle events. */
-    _logWormEvent(action, worm, extra = {}) {
-        try {
-            console.log("[PageWorms]", {
-                action,
-                id: worm?.id,
-                url: this?.url,
-                created_at: worm?.created_at,
-                position: worm?.position,
-                ...extra,
-            });
-        }
-        catch { }
-    }
-    // #endregion
-    // ---------------------------------------------------------------------------
-    // #region Anchoring Helpers
-    // ---------------------------------------------------------------------------
-    _normalizeStatus(value) {
-        if (value === "friends" || value === "public")
-            return value;
-        return "private";
-    }
-    _normalizeTags(value) {
-        if (Array.isArray(value)) {
-            const normalized = value
-                .map((item) => (typeof item === "string" ? item.trim() : ""))
-                .filter(Boolean);
-            return normalized.length ? normalized : null;
-        }
-        if (typeof value === "string") {
-            const normalized = value
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean);
-            return normalized.length ? normalized : null;
-        }
-        return null;
     }
     // #endregion
     // ---------------------------------------------------------------------------
@@ -486,7 +466,7 @@ export class PageWorms {
             // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
             injectStyles();
             // rebuild anchoring cache per render
-            this._anchorCache = this.anchoring.buildTextCache();
+            this._anchorCache = this.anchoringAdapter.buildTextCache();
             // Phase A: build a plan (reads)
             const plan = [];
             const nextIds = new Set(this.worms.map((w) => w.id));
@@ -500,15 +480,15 @@ export class PageWorms {
             }
             // For current worms, resolve hosts and compute placement
             for (const worm of this.worms) {
-                const { hostEl } = this.anchoring.resolvePosition(worm.position, this._anchorCache);
+                const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this._anchorCache);
                 const fallbackHost = document.body ?? document.documentElement;
                 const host = (hostEl ?? fallbackHost);
                 // Decide container (can host children or not)
                 const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
                 const containerEl = cannotContain
-                    ? (host.parentElement instanceof HTMLElement
+                    ? host.parentElement instanceof HTMLElement
                         ? host.parentElement
-                        : (document.body ?? host))
+                        : document.body ?? host
                     : host;
                 // Ensure positioning context (read ok)
                 makePositioningContext(containerEl);
@@ -588,15 +568,15 @@ export class PageWorms {
     /** Render a single worm immediately (used for freshly created annotations). */
     _drawWorm(worm) {
         injectStyles();
-        const { hostEl } = this.anchoring.resolvePosition(worm.position, this._anchorCache);
+        const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this._anchorCache);
         const fallbackHost = document.body ?? document.documentElement;
         const host = (hostEl ?? fallbackHost);
         // Container choice
         const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
         const containerEl = cannotContain
-            ? (host.parentElement instanceof HTMLElement
+            ? host.parentElement instanceof HTMLElement
                 ? host.parentElement
-                : (document.body ?? host))
+                : document.body ?? host
             : host;
         // Positioning context
         makePositioningContext(containerEl);
@@ -621,8 +601,8 @@ export class PageWorms {
     }
 }
 /** Convenience bootstrap for drop-in usage */
-export async function attachPageWorms(options = {}) {
-    const pp = new PageWorms(options);
+export async function attachPageWorms(storageOption) {
+    const pp = new PageWorms(storageOption);
     await pp.init();
     window.__pageWorms = pp;
     return pp;

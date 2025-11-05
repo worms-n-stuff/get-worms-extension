@@ -5,8 +5,8 @@
  *   Persistence adapters with a tiny async API for portability.
  *
  * Responsibilities:
- *   - LocalStorageAdapter: JSON encode/decode per-page worms.
- *   - ChromeStorageAdapter: Chrome extension storage parity.
+ *   - LocalStorageAdapter: Generic local storage.
+ *   - ChromeStorageAdapter: Local storage for chrome extensions.
  *
  * Adapter API:
  *   - get(url): Promise<Array> -> return array of worm records for url.
@@ -16,15 +16,14 @@
  *   - Callers provide canonical URL string as key.
  */
 
+// global config
 import { DEFAULTS } from "../constants.js";
+// global types
 import type { WormRecord } from "../types.js";
+// storage types
+import type { StorageAdapter, StorageOption } from "./types.js";
 
-export interface StorageAdapter {
-  get(url: string): Promise<WormRecord[]>;
-  set(url: string, worms: WormRecord[]): Promise<void>;
-}
-
-export class LocalStorageAdapter implements StorageAdapter {
+class LocalStorageAdapter implements StorageAdapter {
   private readonly prefix: string;
 
   constructor(prefix = DEFAULTS.storageKeyPrefix) {
@@ -51,7 +50,7 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 }
 
-export class ChromeStorageAdapter implements StorageAdapter {
+class ChromeStorageAdapter implements StorageAdapter {
   private readonly prefix: string;
 
   constructor(prefix = DEFAULTS.storageKeyPrefix) {
@@ -86,28 +85,11 @@ export class ChromeStorageAdapter implements StorageAdapter {
   }
 }
 
-export type StorageModuleOption = "local" | "chrome" | StorageAdapter;
-
-export function isStorageAdapter(value: unknown): value is StorageAdapter {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as StorageAdapter).get === "function" &&
-    typeof (value as StorageAdapter).set === "function"
-  );
-}
-
 export function createStorageAdapter(
-  option?: StorageModuleOption
+  storageOption: StorageOption = "chrome"
 ): StorageAdapter {
-  if (!option || option === "local") {
-    return new LocalStorageAdapter();
-  }
-  if (option === "chrome") {
+  if (storageOption === "chrome") {
     return new ChromeStorageAdapter();
-  }
-  if (isStorageAdapter(option)) {
-    return option;
   }
   return new LocalStorageAdapter();
 }

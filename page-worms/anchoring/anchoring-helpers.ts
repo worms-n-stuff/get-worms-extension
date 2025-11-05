@@ -23,35 +23,11 @@
  *   - Keep logic best-effort and fast; the actual location algorithm combines multiple anchors.
  */
 
-import { DEFAULTS } from "../constants.js";
 import { normalizeText } from "../utils.js";
-import type { WormPosition } from "../types.js";
 import type {
-  AnchoringAdapter,
-  CreateAnchorPositionOptions,
-  ResolvedAnchor,
+  TextNode,
+  DomAnchorCache
 } from "./types.js";
-
-export type TextStreamNode = {
-  node: Text;
-  text: string;
-  start: number;
-  end: number;
-};
-
-export type TextContentStream = {
-  nodes: TextStreamNode[];
-  totalLen: number;
-};
-
-export type TextQuoteCache = {
-  nodes: TextStreamNode[];
-  allText: string;
-};
-
-type DomAnchorCache = TextQuoteCache & {
-  stamp: number;
-};
 
 /** Resilient CSS path (avoids ephemeral classes). */
 export function cssPath(el: Element | null): string {
@@ -85,7 +61,7 @@ export function cssPath(el: Element | null): string {
 /** Return visible text nodes with normalized text and running offsets. */
 export function textContentStream(
   root: Element | Document = document.body ?? document
-): TextContentStream {
+): TextNode[] {
   /** Exclude non visible elements. Includes:
    * - Display none or hidden
    * - not in layout flow (e.g. width/height 0)
@@ -108,7 +84,7 @@ export function textContentStream(
     },
   });
 
-  const nodes: TextStreamNode[] = [];
+  const nodes: TextNode[] = [];
   let total = 0;
   let node: Node | null;
   while ((node = walker.nextNode())) {
@@ -123,7 +99,7 @@ export function textContentStream(
     });
     total += txt.length;
   }
-  return { nodes, totalLen: total };
+  return nodes;
 }
 
 /** Best-effort TextQuote re-anchoring that can reuse cached text streams. */
@@ -131,25 +107,21 @@ export function findQuoteRange(
   exact: string,
   prefix = "",
   suffix = "",
-  cached?: TextQuoteCache | null
+  cached?: DomAnchorCache | null
 ): Range | null {
   /**
    * Find the best matching range for a quote in the text.
-   * @param {string} allText
-   * @param {string} exact
-   * @param {string} prefix
-   * @param {string} suffix
-   * @returns {number}
    */
-  function findBestMatch(allText, exact, prefix = "", suffix = "") {
+  function findBestMatch(
+    allText: string,
+    exact: string,
+    prefix = "",
+    suffix = ""
+  ): number {
     /**
      * Count matching characters between two strings, either from the start or end.
-     * @param {string} a
-     * @param {string} b
-     * @param {boolean} [fromEnd=false] - If true, compare from the end (suffix).
-     * @returns {number} Number of matching characters.
      */
-    function commonOverlapLen(a, b, fromEnd = false) {
+    function commonOverlapLen(a: string, b: string, fromEnd = false): number {
       const len = Math.min(a.length, b.length);
       let i = 0;
       while (i < len) {
@@ -182,13 +154,12 @@ export function findQuoteRange(
   }
 
   if (!exact) return null;
-  const nodes = cached?.nodes ?? textContentStream(document.body ?? document).nodes;
+  const nodes =
+    cached?.nodes ?? textContentStream(document.body ?? document);
   const exactNorm = normalizeText(exact);
 
   // Build the same corpus we will map back onto
-  const allText =
-    cached?.allText ??
-    nodes.map((n) => n.text).join("");
+  const allText = cached?.allText ?? nodes.map((n) => n.text).join("");
 
   const startIdx = findBestMatch(allText, exactNorm, prefix, suffix);
   if (startIdx === -1) return null;
@@ -267,7 +238,8 @@ export function selectionContext(
         if (out.length >= need) break;
       }
       let prev = n.previousSibling;
-      while (prev && prev.nodeType !== Node.TEXT_NODE) prev = prev.previousSibling;
+      while (prev && prev.nodeType !== Node.TEXT_NODE)
+        prev = prev.previousSibling;
       if (!prev) {
         n = n.parentNode;
         if (!n || !n.previousSibling) break;
@@ -276,7 +248,10 @@ export function selectionContext(
       } else {
         n = prev;
       }
-      o = n && n.nodeType === Node.TEXT_NODE ? ((n as Text).nodeValue || "").length : 0;
+      o =
+        n && n.nodeType === Node.TEXT_NODE
+          ? ((n as Text).nodeValue || "").length
+          : 0;
     }
     return out.slice(-need);
   }
@@ -347,136 +322,4 @@ export function docScrollPct(): number {
   const doc = document.documentElement;
   const h = doc.scrollHeight - doc.clientHeight;
   return h <= 0 ? 0 : doc.scrollTop / h;
-}
-
-class DomAnchoringAdapter
-  implements AnchoringAdapter<DomAnchorCache>
-{
-  buildTextCache(): DomAnchorCache {
-    const root = document.body ?? document;
-    const { nodes } = textContentStream(root);
-    const allText = nodes.map((n) => n.text).join("");
-    return { nodes, allText, stamp: performance.now() };
-  }
-
-  createPosition({
-    target,
-    clickX,
-    clickY,
-    selection,
-  }: CreateAnchorPositionOptions): WormPosition {
-    const el =
-      target instanceof Element
-        ? target
-        : target && "parentElement" in target
-        ? target.parentElement
-        : null;
-    const selector = el ? cssPath(el) : "";
-
-    let textQuote: WormPosition["textQuote"] = null;
-    if (selection) {
-      const { prefix, suffix } = selectionContext(
-        selection,
-        DEFAULTS.maxTextContext
-      );
-      const exact = selection
-        .toString()
-        .normalize("NFC")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 1024);
-      textQuote = { exact, prefix, suffix };
-    }
-
-    const hostEl =
-      (el ??
-        document.body ??
-        document.documentElement ??
-        document.createElement("div")) as HTMLElement;
-    const pct = elementBoxPct(hostEl, clickX, clickY);
-
-    return {
-      dom: { selector },
-      textQuote,
-      element: {
-        tag: hostEl?.tagName || "BODY",
-        attrs: stableAttrs(hostEl),
-        relBoxPct: { x: pct.x, y: pct.y },
-      },
-      fallback: { scrollPct: docScrollPct() },
-    };
-  }
-
-  resolvePosition(
-    position: WormPosition,
-    cache: DomAnchorCache | null
-  ): ResolvedAnchor {
-    if (position.dom.selector && position.textQuote?.exact) {
-      try {
-        const el = document.querySelector(position.dom.selector);
-        if (
-          el instanceof HTMLElement &&
-          normalizeText(el.innerText || "").includes(
-            normalizeText(position.textQuote.exact)
-          )
-        ) {
-          return { hostEl: el };
-        }
-      } catch {}
-    }
-
-    if (position.textQuote?.exact) {
-      const range = findQuoteRange(
-        position.textQuote.exact,
-        position.textQuote.prefix,
-        position.textQuote.suffix,
-        cache
-      );
-      if (range) {
-        const rects = range.getClientRects();
-        if (rects.length) {
-          let hostEl = elementForRange(range);
-          if (hostEl === document.body && position.dom.selector) {
-            try {
-              const sEl = document.querySelector(position.dom.selector);
-              if (sEl instanceof HTMLElement) hostEl = sEl;
-            } catch {}
-          }
-          return { hostEl: hostEl instanceof HTMLElement ? hostEl : null };
-        }
-      }
-    }
-
-    let hostEl: HTMLElement | null = null;
-    if (position.dom.selector) {
-      try {
-        const el = document.querySelector(position.dom.selector);
-        if (el instanceof HTMLElement) hostEl = el;
-      } catch {}
-    }
-    if (!hostEl) {
-      const tag = position.element.tag;
-      if (tag) {
-        const cands = Array.from(document.getElementsByTagName(tag)).filter(
-          (el): el is HTMLElement => el instanceof HTMLElement
-        );
-        const want = position.element.attrs;
-        hostEl =
-          cands.find((el) =>
-            Object.keys(want).every(
-              (k) => (el.getAttribute(k) || "") === want[k]
-            )
-          ) || null;
-      }
-    }
-    if (!hostEl) {
-      const fallback = document.body ?? document.documentElement;
-      hostEl = fallback instanceof HTMLElement ? fallback : null;
-    }
-    return { hostEl };
-  }
-}
-
-export function createDomAnchoringAdapter(): AnchoringAdapter {
-  return new DomAnchoringAdapter();
 }

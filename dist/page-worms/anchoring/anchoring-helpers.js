@@ -22,7 +22,6 @@
  *   - Avoid reading from script/style/noscript/template nodes.
  *   - Keep logic best-effort and fast; the actual location algorithm combines multiple anchors.
  */
-import { DEFAULTS } from "../constants.js";
 import { normalizeText } from "../utils.js";
 /** Resilient CSS path (avoids ephemeral classes). */
 export function cssPath(el) {
@@ -95,25 +94,16 @@ export function textContentStream(root = document.body ?? document) {
         });
         total += txt.length;
     }
-    return { nodes, totalLen: total };
+    return nodes;
 }
 /** Best-effort TextQuote re-anchoring that can reuse cached text streams. */
 export function findQuoteRange(exact, prefix = "", suffix = "", cached) {
     /**
      * Find the best matching range for a quote in the text.
-     * @param {string} allText
-     * @param {string} exact
-     * @param {string} prefix
-     * @param {string} suffix
-     * @returns {number}
      */
     function findBestMatch(allText, exact, prefix = "", suffix = "") {
         /**
          * Count matching characters between two strings, either from the start or end.
-         * @param {string} a
-         * @param {string} b
-         * @param {boolean} [fromEnd=false] - If true, compare from the end (suffix).
-         * @returns {number} Number of matching characters.
          */
         function commonOverlapLen(a, b, fromEnd = false) {
             const len = Math.min(a.length, b.length);
@@ -146,11 +136,10 @@ export function findQuoteRange(exact, prefix = "", suffix = "", cached) {
     }
     if (!exact)
         return null;
-    const nodes = cached?.nodes ?? textContentStream(document.body ?? document).nodes;
+    const nodes = cached?.nodes ?? textContentStream(document.body ?? document);
     const exactNorm = normalizeText(exact);
     // Build the same corpus we will map back onto
-    const allText = cached?.allText ??
-        nodes.map((n) => n.text).join("");
+    const allText = cached?.allText ?? nodes.map((n) => n.text).join("");
     const startIdx = findBestMatch(allText, exactNorm, prefix, suffix);
     if (startIdx === -1)
         return null;
@@ -224,7 +213,10 @@ export function selectionContext(range, max) {
             else {
                 n = prev;
             }
-            o = n && n.nodeType === Node.TEXT_NODE ? (n.nodeValue || "").length : 0;
+            o =
+                n && n.nodeType === Node.TEXT_NODE
+                    ? (n.nodeValue || "").length
+                    : 0;
         }
         return out.slice(-need);
     }
@@ -291,102 +283,4 @@ export function docScrollPct() {
     const doc = document.documentElement;
     const h = doc.scrollHeight - doc.clientHeight;
     return h <= 0 ? 0 : doc.scrollTop / h;
-}
-class DomAnchoringAdapter {
-    buildTextCache() {
-        const root = document.body ?? document;
-        const { nodes } = textContentStream(root);
-        const allText = nodes.map((n) => n.text).join("");
-        return { nodes, allText, stamp: performance.now() };
-    }
-    createPosition({ target, clickX, clickY, selection, }) {
-        const el = target instanceof Element
-            ? target
-            : target && "parentElement" in target
-                ? target.parentElement
-                : null;
-        const selector = el ? cssPath(el) : "";
-        let textQuote = null;
-        if (selection) {
-            const { prefix, suffix } = selectionContext(selection, DEFAULTS.maxTextContext);
-            const exact = selection
-                .toString()
-                .normalize("NFC")
-                .replace(/\s+/g, " ")
-                .trim()
-                .slice(0, 1024);
-            textQuote = { exact, prefix, suffix };
-        }
-        const hostEl = (el ??
-            document.body ??
-            document.documentElement ??
-            document.createElement("div"));
-        const pct = elementBoxPct(hostEl, clickX, clickY);
-        return {
-            dom: { selector },
-            textQuote,
-            element: {
-                tag: hostEl?.tagName || "BODY",
-                attrs: stableAttrs(hostEl),
-                relBoxPct: { x: pct.x, y: pct.y },
-            },
-            fallback: { scrollPct: docScrollPct() },
-        };
-    }
-    resolvePosition(position, cache) {
-        if (position.dom.selector && position.textQuote?.exact) {
-            try {
-                const el = document.querySelector(position.dom.selector);
-                if (el instanceof HTMLElement &&
-                    normalizeText(el.innerText || "").includes(normalizeText(position.textQuote.exact))) {
-                    return { hostEl: el };
-                }
-            }
-            catch { }
-        }
-        if (position.textQuote?.exact) {
-            const range = findQuoteRange(position.textQuote.exact, position.textQuote.prefix, position.textQuote.suffix, cache);
-            if (range) {
-                const rects = range.getClientRects();
-                if (rects.length) {
-                    let hostEl = elementForRange(range);
-                    if (hostEl === document.body && position.dom.selector) {
-                        try {
-                            const sEl = document.querySelector(position.dom.selector);
-                            if (sEl instanceof HTMLElement)
-                                hostEl = sEl;
-                        }
-                        catch { }
-                    }
-                    return { hostEl: hostEl instanceof HTMLElement ? hostEl : null };
-                }
-            }
-        }
-        let hostEl = null;
-        if (position.dom.selector) {
-            try {
-                const el = document.querySelector(position.dom.selector);
-                if (el instanceof HTMLElement)
-                    hostEl = el;
-            }
-            catch { }
-        }
-        if (!hostEl) {
-            const tag = position.element.tag;
-            if (tag) {
-                const cands = Array.from(document.getElementsByTagName(tag)).filter((el) => el instanceof HTMLElement);
-                const want = position.element.attrs;
-                hostEl =
-                    cands.find((el) => Object.keys(want).every((k) => (el.getAttribute(k) || "") === want[k])) || null;
-            }
-        }
-        if (!hostEl) {
-            const fallback = document.body ?? document.documentElement;
-            hostEl = fallback instanceof HTMLElement ? fallback : null;
-        }
-        return { hostEl };
-    }
-}
-export function createDomAnchoringAdapter() {
-    return new DomAnchoringAdapter();
 }
