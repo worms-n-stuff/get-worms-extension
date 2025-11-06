@@ -1,12 +1,3 @@
-/**
- * service-worker/auth.js – the auth flow
- * It does this by handling messages from popup and content-script.
- * Responsibilities include:
- * - Management of (creating, storing, sending, deleting) handshake
- * - Management of (storing, retrieving) session
- * and more.
- */
-
 import {
   AUTH_MESSAGES,
   HANDSHAKE_STORAGE_KEY,
@@ -58,8 +49,26 @@ async function openLoginTab(state) {
   await chrome.tabs.create({ url: url.toString(), active: true });
 }
 
-// --- Message router ---
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+/** Register message handlers for auth-related runtime events. */
+export function registerAuthHandlers(): void {
+  chrome.runtime.onMessage.addListener(authMessageListener);
+}
+
+type IncomingAuthMessage = {
+  type?: string;
+  state?: string;
+  session?: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_at?: number;
+  };
+};
+
+function authMessageListener(
+  msg: IncomingAuthMessage | undefined,
+  _sender: chrome.runtime.MessageSender,
+  sendResponse: (response: unknown) => void
+): true {
   (async () => {
     try {
       switch (msg?.type) {
@@ -125,6 +134,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })();
   // Indicate we will respond asynchronously
   return true;
-});
+}
 
 export {};
