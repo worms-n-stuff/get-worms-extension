@@ -4,37 +4,52 @@
  */
 
 (() => {
-  const TRUSTED_ORIGINS = new Set([
-    "https://get-worms.com",
-    "http://localhost:5173",
-  ]);
-  const MSG_TYPE = "worms:supabaseSession";
+  type AuthSharedModule = typeof import("../shared/auth.js");
+  let authShared: AuthSharedModule | null = null;
+  let trustedOrigins = new Set<string>();
 
+  const authSharedReady = import(
+    chrome.runtime.getURL("dist/shared/auth.js")
+  ).then((mod) => {
+    authShared = mod;
+    trustedOrigins = new Set(mod.TRUSTED_LOGIN_ORIGINS);
+    return mod;
+  });
+  
   let pendingState: string | null = null;
   let completed = false;
 
-  // Ask background for the state we generated in GW_BEGIN_LOGIN
+  // Ask background for the state we generated in AUTH_MESSAGES.BEGIN_LOGIN
   async function fetchPendingState() {
+    await authSharedReady;
+    if (!authShared) return;
     try {
       const resp = await chrome.runtime.sendMessage({
-        type: "GW_GET_PENDING_STATE",
+        type: authShared.AUTH_MESSAGES.GET_PENDING_STATE,
       });
       pendingState = resp?.pendingState || null;
     } catch {}
   }
-  fetchPendingState();
+  void fetchPendingState();
 
   window.addEventListener("message", async (event) => {
+    await authSharedReady;
+    if (!authShared) return;
     try {
+      const { AUTH_MESSAGES, SUPABASE_SESSION_MESSAGE_TYPE } = authShared;
       // 1) origin/type guard
-      if (!TRUSTED_ORIGINS.has(event.origin)) return;
+      if (!trustedOrigins.has(event.origin)) return;
       if (event.source !== window) return; // only same-page messages
       const data = event.data as {
         type?: string;
         state?: string;
-        session?: { access_token?: string; refresh_token?: string; expires_at?: number };
+        session?: {
+          access_token?: string;
+          refresh_token?: string;
+          expires_at?: number;
+        };
       };
-      if (!data || data.type !== MSG_TYPE) return;
+      if (!data || data.type !== SUPABASE_SESSION_MESSAGE_TYPE) return;
 
       // 2) ensure we have the current pendingState
       if (!pendingState) await fetchPendingState();
@@ -44,14 +59,15 @@
 
       // 4) minimal session shape
       const { access_token, refresh_token, expires_at } = data.session || {};
-      if (!access_token || !refresh_token || !Number.isFinite(expires_at)) return;
+      if (!access_token || !refresh_token || !Number.isFinite(expires_at))
+        return;
 
       if (completed) return; // debounce duplicate deliveries
       completed = true;
 
       // 5) hand off to background
       const response = await chrome.runtime.sendMessage({
-        type: "GW_COMPLETE_LOGIN",
+        type: AUTH_MESSAGES.COMPLETE_LOGIN,
         state: data.state,
         session: { access_token, refresh_token, expires_at },
       });
@@ -59,7 +75,7 @@
       // 6) notify ui to refresh status
       if (response?.ok) {
         try {
-          chrome.runtime.sendMessage({ type: "GW_LOGIN_SUCCESS" });
+          chrome.runtime.sendMessage({ type: AUTH_MESSAGES.LOGIN_SUCCESS });
         } catch {}
       }
     } catch {}

@@ -3,6 +3,7 @@
  * - login status ui logic
  * - login button handler
  */
+import { AUTH_MESSAGES } from "../shared/auth.js";
 const statusEl = document.getElementById("status");
 const loginBtn = document.getElementById("loginBtn");
 const statusRow = document.getElementById("statusRow");
@@ -13,7 +14,7 @@ function setStatus(text) {
 async function refreshStatus() {
     // Ask background if we currently have a valid session cached
     const resp = await chrome.runtime.sendMessage({
-        type: "GW_GET_LOGIN_STATUS",
+        type: AUTH_MESSAGES.GET_LOGIN_STATUS,
     });
     if (resp?.loggedIn) {
         statusRow.style.display = "none";
@@ -28,7 +29,9 @@ async function refreshStatus() {
 }
 loginBtn.addEventListener("click", async () => {
     // Initiate login handshake (background will create state + open tab)
-    const resp = await chrome.runtime.sendMessage({ type: "GW_BEGIN_LOGIN" });
+    const resp = await chrome.runtime.sendMessage({
+        type: AUTH_MESSAGES.BEGIN_LOGIN,
+    });
     if (resp?.ok) {
         setStatus("Opening login…");
     }
@@ -40,11 +43,10 @@ loginBtn.addEventListener("click", async () => {
 document.addEventListener("DOMContentLoaded", refreshStatus);
 // on login, refresh UI
 chrome.runtime.onMessage.addListener((msg) => {
-    if (msg?.type === "GW_LOGIN_SUCCESS") {
+    if (msg?.type === AUTH_MESSAGES.LOGIN_SUCCESS) {
         document.getElementById("status").textContent = "Logged in";
         const btn = document.getElementById("loginBtn");
         if (btn)
             btn.style.display = "none";
     }
 });
-export {};

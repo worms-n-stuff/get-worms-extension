@@ -7,11 +7,14 @@
  * and more.
  */
 
-const LOGIN_ORIGIN = "https://get-worms.com"; // http://localhost:5173/
-const LOGIN_PATH = "";
-const STORAGE_KEY_HANDSHAKE = "gw_login_handshake";
-const STORAGE_KEY_SESSION = "gw_supabase_session";
-const HANDSHAKE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+import {
+  AUTH_MESSAGES,
+  HANDSHAKE_STORAGE_KEY,
+  HANDSHAKE_TTL_MS,
+  LOGIN_ORIGIN,
+  LOGIN_PATH,
+  SESSION_STORAGE_KEY,
+} from "../shared/auth.js";
 
 // --- Utilities ---
 function base64url(bytes) {
@@ -27,25 +30,25 @@ function generateState(length = 32) {
 }
 
 async function setHandshake(handshake) {
-  await chrome.storage.local.set({ [STORAGE_KEY_HANDSHAKE]: handshake });
+  await chrome.storage.local.set({ [HANDSHAKE_STORAGE_KEY]: handshake });
 }
 
 async function getHandshake() {
-  const obj = await chrome.storage.local.get(STORAGE_KEY_HANDSHAKE);
-  return obj[STORAGE_KEY_HANDSHAKE] || null;
+  const obj = await chrome.storage.local.get(HANDSHAKE_STORAGE_KEY);
+  return obj[HANDSHAKE_STORAGE_KEY] || null;
 }
 
 async function clearHandshake() {
-  await chrome.storage.local.remove(STORAGE_KEY_HANDSHAKE);
+  await chrome.storage.local.remove(HANDSHAKE_STORAGE_KEY);
 }
 
 async function setSession(session) {
-  await chrome.storage.local.set({ [STORAGE_KEY_SESSION]: session });
+  await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: session });
 }
 
 async function getSession() {
-  const obj = await chrome.storage.local.get(STORAGE_KEY_SESSION);
-  return obj[STORAGE_KEY_SESSION] || null;
+  const obj = await chrome.storage.local.get(SESSION_STORAGE_KEY);
+  return obj[SESSION_STORAGE_KEY] || null;
 }
 
 async function openLoginTab(state) {
@@ -60,7 +63,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     try {
       switch (msg?.type) {
-        case "GW_GET_LOGIN_STATUS": {
+        case AUTH_MESSAGES.GET_LOGIN_STATUS: {
           const session = await getSession();
           const loggedIn = Boolean(
             session?.access_token &&
@@ -70,7 +73,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, loggedIn });
           return;
         }
-        case "GW_BEGIN_LOGIN": {
+        case AUTH_MESSAGES.BEGIN_LOGIN: {
           const state = generateState(32);
           const createdAt = Date.now();
           await setHandshake({ pendingState: state, createdAt });
@@ -78,12 +81,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true });
           return;
         }
-        case "GW_GET_PENDING_STATE": {
+        case AUTH_MESSAGES.GET_PENDING_STATE: {
           const hs = await getHandshake();
           sendResponse({ ok: true, pendingState: hs?.pendingState || null });
           return;
         }
-        case "GW_COMPLETE_LOGIN": {
+        case AUTH_MESSAGES.COMPLETE_LOGIN: {
           const { state, session } = msg || {};
           const hs = await getHandshake();
 
