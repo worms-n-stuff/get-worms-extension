@@ -8,7 +8,6 @@
  * Responsibilities:
  *   - init(): Bootstraps styles, storage hydration, observers, and initial render.
  *   - addWorm(opts): Create a new worm from adapter-derived position data.
- *   - renderAll(): Redraw all worms after DOM changes/resizes via adapter resolution.
  *   - Anchoring adapter: Resolve persisted worm positions using multi-strategy fallbacks.
  *   - Storage adapter: Persist worm collections keyed by canonical URL.
  *   - _observe(): Resize/scroll/mutation listeners with throttled rerender.
@@ -31,7 +30,7 @@ import { createRenderingAdapter, } from "./rendering/index.js";
 import { DEFAULTS } from "./constants.js";
 import { throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
-import { WormUI } from "./ui.js";
+import { WormUI } from "./ui/ui-manager/ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
 export class PageWorms {
     // ---------------------------------------------------------------------------
@@ -42,7 +41,6 @@ export class PageWorms {
         this.url = getCanonicalUrl();
         this.worms = [];
         this._idCounter = 0;
-        this._needsMigration = false;
         this._ui = new WormUI({
             getWormById: (id) => this._findWormById(id),
             onEdit: async (id, data) => {
@@ -65,7 +63,7 @@ export class PageWorms {
     async init() {
         await this.load();
         this._observe();
-        await this.renderAll();
+        await this.renderingAdapter.renderAll(this.worms);
     }
     /** Tear down observers/listeners and remove rendered worm elements. */
     destroy() {
@@ -79,6 +77,9 @@ export class PageWorms {
         this.worms = [];
         this._ui.reset();
     }
+    async renderAll() {
+        await this.renderingAdapter.renderAll(this.worms);
+    }
     // #endregion
     // ---------------------------------------------------------------------------
     // #region Observer Integration
@@ -86,7 +87,7 @@ export class PageWorms {
     /** Wire resize/scroll/mutation observers with a throttled render loop. */
     _observe() {
         const scheduleRender = throttle(() => {
-            void this.renderAll();
+            void this.renderingAdapter.renderAll(this.worms);
         }, DEFAULTS.throttleMs);
         this.observerAdapter.start({
             scheduleRender,
@@ -113,9 +114,6 @@ export class PageWorms {
             const id = Number(worm?.id);
             return Number.isFinite(id) && id > max ? id : max;
         }, 0);
-        this._needsMigration = false;
-        if (this._needsMigration)
-            await this._persist();
     }
     /** Persist the in-memory worm list for the current page. */
     async _persist() {
@@ -130,16 +128,6 @@ export class PageWorms {
             return null;
         return this.worms.find((w) => w.id === id) || null;
     }
-    // #endregion
-    // ---------------------------------------------------------------------------
-    // #region Normalization
-    // ---------------------------------------------------------------------------
-    _normalizeStatus(value) {
-        if (value === "friends" || value === "public")
-            return value;
-        return "private";
-    }
-    // TODO: investigate if _nomalizeStatus is needed.
     // #endregion
     // ---------------------------------------------------------------------------
     // #region Worm Actions & UI
@@ -167,7 +155,7 @@ export class PageWorms {
             created_at: now,
             updated_at: null,
             content: formResult.content ?? "",
-            status: this._normalizeStatus(formResult.status),
+            status: formResult.status,
             tags: formResult.tags.length ? formResult.tags : null,
             author_id: null,
             position,
@@ -176,8 +164,8 @@ export class PageWorms {
         this.worms.push(worm);
         this._logWormEvent("create", worm, { via: "contextmenu" });
         await this._persist();
-        this._drawWorm(worm);
-        await this.renderAll();
+        this.renderingAdapter.drawWorm(worm);
+        await this.renderingAdapter.renderAll(this.worms);
         await this._ui.openViewer(worm.id);
         return worm;
     }
@@ -187,11 +175,11 @@ export class PageWorms {
             return null;
         worm.content = payload.content ?? "";
         worm.tags = payload.tags.length ? payload.tags : null;
-        worm.status = this._normalizeStatus(payload.status);
+        worm.status = payload.status;
         worm.updated_at = new Date().toISOString();
         await this._persist();
         this._logWormEvent("update", worm, { via: "ui" });
-        await this.renderAll();
+        await this.renderingAdapter.renderAll(this.worms);
         return worm;
     }
     async _handleDeleteFromUI(wormId) {
@@ -202,19 +190,7 @@ export class PageWorms {
         this.renderingAdapter.removeWorm(wormId);
         await this._persist();
         this._logWormEvent("delete", worm, { via: "ui" });
-        await this.renderAll();
-    }
-    // #endregion
-    // ---------------------------------------------------------------------------
-    // #region Rendering Pipeline
-    // ---------------------------------------------------------------------------
-    /** Re-render every worm, batching DOM writes behind requestAnimationFrame. */
-    async renderAll() {
         await this.renderingAdapter.renderAll(this.worms);
-    }
-    /** Render a single worm immediately (used for freshly created annotations). */
-    _drawWorm(worm) {
-        this.renderingAdapter.drawWorm(worm);
     }
     // #endregion
     // ---------------------------------------------------------------------------

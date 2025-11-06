@@ -45,8 +45,8 @@ import {
 import { DEFAULTS } from "./constants.js";
 import { throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
-import { WormUI } from "./ui.js";
-import type { WormRecord, WormFormData, WormStatus } from "./types.js";
+import { WormUI } from "./ui/ui-manager/ui.js";
+import type { WormRecord, WormFormData } from "./types.js";
 
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
 
@@ -116,6 +116,10 @@ export class PageWorms {
     this.renderingAdapter.clear();
     this.worms = [];
     this._ui.reset();
+  }
+
+  async renderAll(): Promise<void> {
+    await this.renderingAdapter.renderAll(this.worms);
   }
 
   // #endregion

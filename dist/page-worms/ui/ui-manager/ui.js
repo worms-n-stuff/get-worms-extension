@@ -1,5 +1,5 @@
 /**
- * ui.js
+ * ui.ts
  * -----------------------------------------------------------------------------
  * Coordinates tooltip previews and modal interactions for worm annotations.
  * Keeps DOM wiring private while exposing a minimal API for page modules.

@@ -1,5 +1,5 @@
 /**
- * ui.js
+ * ui.ts
  * -----------------------------------------------------------------------------
  * Coordinates tooltip previews and modal interactions for worm annotations.
  * Keeps DOM wiring private while exposing a minimal API for page modules.
@@ -11,7 +11,7 @@ import {
   createModalView,
   createModalForm,
 } from "./templates.js";
-import type { WormRecord, WormFormData, WormStatus } from "./types.js";
+import type { WormRecord, WormFormData, WormStatus } from "../../types.js";
 
 type WormUIState =
   | { mode: "view"; wormId: number }
