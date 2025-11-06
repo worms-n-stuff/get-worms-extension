@@ -303,7 +303,10 @@ export class PageWorms {
   /** Load worms for the current canonical URL via the configured storage adapter. */
   async load(): Promise<void> {
     this.worms = await this.storageAdapter.get(this.url);
-    this._idCounter = 0;
+    this._idCounter = this.worms.reduce((max, worm) => {
+      const id = Number(worm?.id);
+      return Number.isFinite(id) && id > max ? id : max;
+    }, 0);
     this._needsMigration = false;
     if (this._needsMigration) await this._persist();
   }
