@@ -60,7 +60,7 @@ export function throttle<TArgs extends unknown[]>(
 }
 
 /** Normalize text for anchoring: NFC transform plus whitespace collapsing. */
-export const normalizeText = (s: unknown): string =>
+export const normalizeText = (s: string | null | undefined): string =>
   (s ?? "")
     .toString()
     .normalize("NFC")

@@ -30,79 +30,6 @@ import { injectStyles } from "./styles.js";
 import { createWormEl, makePositioningContext, createOrUpdateBox, } from "./layer.js";
 import { WormUI } from "./ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
-function clamp01(value) {
-    if (!Number.isFinite(value))
-        return 0;
-    if (value < 0)
-        return 0;
-    if (value > 1)
-        return 1;
-    return value;
-}
-function toStringRecord(value) {
-    if (!value || typeof value !== "object")
-        return {};
-    const out = {};
-    for (const [key, val] of Object.entries(value)) {
-        if (typeof val === "string") {
-            out[key] = val;
-        }
-    }
-    return out;
-}
-function normalizePosition(raw) {
-    const obj = raw && typeof raw === "object" ? raw : {};
-    const dom = obj.dom && typeof obj.dom === "object"
-        ? obj.dom
-        : null;
-    const selector = typeof dom?.selector === "string" ? dom.selector : "";
-    const textQuoteRaw = obj.textQuote && typeof obj.textQuote === "object"
-        ? obj.textQuote
-        : null;
-    const textQuote = textQuoteRaw &&
-        typeof textQuoteRaw.exact === "string" &&
-        textQuoteRaw.exact.trim()
-        ? {
-            exact: textQuoteRaw.exact,
-            prefix: typeof textQuoteRaw.prefix === "string" ? textQuoteRaw.prefix : "",
-            suffix: typeof textQuoteRaw.suffix === "string" ? textQuoteRaw.suffix : "",
-        }
-        : null;
-    const elementRaw = obj.element && typeof obj.element === "object"
-        ? obj.element
-        : {};
-    const relPctRaw = elementRaw.relBoxPct && typeof elementRaw.relBoxPct === "object"
-        ? elementRaw.relBoxPct
-        : {};
-    const rawX = relPctRaw.x;
-    const rawY = relPctRaw.y;
-    const relBoxPct = {
-        x: clamp01(typeof rawX === "number" ? rawX : 0.5),
-        y: clamp01(typeof rawY === "number" ? rawY : 0.5),
-    };
-    const fallbackRaw = obj.fallback && typeof obj.fallback === "object"
-        ? obj.fallback
-        : {};
-    const rawScrollPct = fallbackRaw.scrollPct;
-    let scrollPct = 0;
-    if (typeof rawScrollPct === "number" && Number.isFinite(rawScrollPct)) {
-        scrollPct = clamp01(rawScrollPct);
-    }
-    return {
-        dom: { selector },
-        textQuote,
-        element: {
-            tag: typeof elementRaw.tag === "string" && elementRaw.tag
-                ? elementRaw.tag
-                : "BODY",
-            attrs: toStringRecord(elementRaw.attrs),
-            relBoxPct,
-        },
-        fallback: {
-            scrollPct,
-        },
-    };
-}
 export class PageWorms {
     // ---------------------------------------------------------------------------
     // #region Lifecycle & Observers
@@ -296,10 +223,9 @@ export class PageWorms {
     }
     /** Load worms for the current canonical URL via the configured storage adapter. */
     async load() {
-        const raw = await this.storageAdapter.get(this.url);
+        this.worms = await this.storageAdapter.get(this.url);
         this._idCounter = 0;
         this._needsMigration = false;
-        this.worms = raw.map((w) => this._normalizeWorm(w));
         if (this._needsMigration)
             await this._persist();
     }
@@ -339,90 +265,7 @@ export class PageWorms {
             return value;
         return "private";
     }
-    _normalizeTags(value) {
-        if (Array.isArray(value)) {
-            const normalized = value
-                .map((item) => (typeof item === "string" ? item.trim() : ""))
-                .filter(Boolean);
-            return normalized.length ? normalized : null;
-        }
-        if (typeof value === "string") {
-            const normalized = value
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean);
-            return normalized.length ? normalized : null;
-        }
-        return null;
-    }
-    // TODO: this is probably not needed. Also investigate if other _normalize functions are needed.
-    _normalizeWorm(raw) {
-        const data = raw && typeof raw === "object" ? raw : {};
-        let changed = false;
-        const rawId = data.id;
-        let id;
-        if (typeof rawId === "number" && Number.isFinite(rawId)) {
-            id = rawId;
-            this._idCounter = Math.max(this._idCounter, rawId);
-        }
-        else if (typeof rawId === "string" && /^\d+$/.test(rawId)) {
-            const parsed = Number(rawId);
-            id = parsed;
-            this._idCounter = Math.max(this._idCounter, parsed);
-            changed = true;
-        }
-        else {
-            id = this._generateId();
-            changed = true;
-        }
-        const created_at = typeof data.created_at === "string"
-            ? data.created_at
-            : new Date().toISOString();
-        if (created_at !== data.created_at)
-            changed = true;
-        const updated_at = data.updated_at === null || typeof data.updated_at === "string"
-            ? data.updated_at
-            : null;
-        if (updated_at !== data.updated_at)
-            changed = true;
-        const status = this._normalizeStatus(data.status);
-        if (status !== data.status)
-            changed = true;
-        const tags = this._normalizeTags(data.tags);
-        if (tags !== data.tags)
-            changed = true;
-        const positionSource = data.position ?? data.anchor ?? null;
-        if (!data.position && data.anchor)
-            changed = true;
-        const position = normalizePosition(positionSource);
-        const author_id = typeof data.author_id === "number" ? data.author_id : null;
-        if (author_id !== data.author_id)
-            changed = true;
-        const host_url = typeof data.host_url === "string"
-            ? data.host_url
-            : typeof data.url === "string"
-                ? data.url
-                : this.url;
-        if (host_url !== data.host_url)
-            changed = true;
-        const content = typeof data.content === "string" ? data.content : "";
-        if (content !== data.content)
-            changed = true;
-        const worm = {
-            id,
-            created_at,
-            updated_at,
-            content,
-            status,
-            tags: tags ?? null,
-            author_id,
-            position,
-            host_url,
-        };
-        if (changed)
-            this._needsMigration = true;
-        return worm;
-    }
+    // TODO: investigate if _nomalizeStatus is needed.
     // #endregion
     // ---------------------------------------------------------------------------
     // #region UI Delegates

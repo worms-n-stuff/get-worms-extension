@@ -17,7 +17,10 @@ type ElementBoxAnchor = {
 
 export type WormPosition = {
   dom: {
-    selector: string;
+    // usually the leaf where you draw the worm
+    selectorFine: string;
+    // stable ancestor
+    selectorCoarse: string;
   };
   textQuote: TextQuoteAnchor | null;
   element: ElementBoxAnchor;

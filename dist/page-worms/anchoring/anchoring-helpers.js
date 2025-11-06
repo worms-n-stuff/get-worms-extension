@@ -2,47 +2,37 @@
  * dom-anchors.ts
  * -----------------------------------------------------------------------------
  * Purpose:
- *   DOM-anchoring helpers that resolve stable references for worms.
+ *   DOM anchoring helpers that resolve stable references for worms.
  *
- * Responsibilities:
- *   - cssPath(el): Generate resilient CSS selectors avoiding ephemeral classes.
- *   - textContentStream(): Iterate visible text nodes with cached offsets.
- *   - findQuoteRange(exact, prefix, suffix): Map a TextQuote to a DOM Range.
- *   - elementForRange(range): Choose a sensible host element for a selection.
- *   - selectionContext(range, max): Build prefix/suffix for TextQuote anchors.
- *   - elementBoxPct(el, x, y): Compute relative (x,y) within element bounds.
- *   - stableAttrs(el): Whitelist stable attributes for fuzzy re-anchoring.
- *   - docScrollPct(): Vertical document scroll percentage.
- *
- * Key Exports:
- *   - cssPath, textContentStream, findQuoteRange, elementForRange,
- *     selectionContext, elementBoxPct, stableAttrs, docScrollPct
- *
- * Design Notes:
- *   - Avoid reading from script/style/noscript/template nodes.
- *   - Keep logic best-effort and fast; the actual location algorithm combines multiple anchors.
+ * Note:
+ *   Keep logic best-effort and fast; the actual location algorithm combines multiple anchors.
  */
 import { normalizeText } from "../utils.js";
-/** Resilient CSS path (avoids ephemeral classes). */
-export function cssPath(el) {
+/** generate a unique, stable CSS selector path for a given DOM element */
+export function getCssPath(el) {
     if (!el || el.nodeType !== Node.ELEMENT_NODE)
         return "";
+    // the path
     const parts = [];
+    // walk up dom tree until <body> element or element with id
     while (el && el.nodeType === Node.ELEMENT_NODE && el !== document.body) {
         const id = el.getAttribute("id") ?? "";
         if (id && /^[A-Za-z][\w\-\:\.]+$/.test(id)) {
             parts.unshift(`#${CSS.escape(id)}`);
             break;
         }
+        // tag name
         let tag = el.tagName.toLowerCase();
+        // stable attributes
         const attrs = Array.from(el.attributes);
-        const stableAttrs = attrs
+        const getStableAttrs = attrs
             .filter((a) => /^data-|^aria-|^role$/.test(a.name))
             .slice(0, 2)
             .map((a) => `[${a.name}="${a.value}"]`)
             .join("");
-        if (stableAttrs)
-            tag += stableAttrs;
+        if (getStableAttrs)
+            tag += getStableAttrs;
+        // nth of type
         let idx = 1, sib = el;
         while ((sib = sib.previousElementSibling))
             if (sib.tagName === el.tagName)
@@ -52,9 +42,9 @@ export function cssPath(el) {
     }
     return parts.length ? parts.join(" > ") : "";
 }
-/** Return visible text nodes with normalized text and running offsets. */
-export function textContentStream(root = document.body ?? document) {
-    /** Exclude non visible elements. Includes:
+/** Return all visible text nodes and their relevant info. */
+export function getAllTextNode(root = document.body ?? document) {
+    /** Conditions for non visible elements:
      * - Display none or hidden
      * - not in layout flow (e.g. width/height 0)
      */
@@ -66,6 +56,7 @@ export function textContentStream(root = document.body ?? document) {
             return false;
         return el.getClientRects().length > 0;
     }
+    // Reject if no parent, in script/style/noscript/template, empty, or not visible
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
         acceptNode: (n) => {
             const p = n.parentElement;
@@ -96,15 +87,11 @@ export function textContentStream(root = document.body ?? document) {
     }
     return nodes;
 }
-/** Best-effort TextQuote re-anchoring that can reuse cached text streams. */
-export function findQuoteRange(exact, prefix = "", suffix = "", cached) {
-    /**
-     * Find the best matching range for a quote in the text.
-     */
-    function findBestMatch(allText, exact, prefix = "", suffix = "") {
-        /**
-         * Count matching characters between two strings, either from the start or end.
-         */
+/** Given a text quote, find the corresponding range in the document. */
+export function getQuoteRange(quote, prefix = "", suffix = "", cached) {
+    /** find the best matching range for a quote in the text, and return its start index */
+    function findBestMatch(allText, quote, prefix = "", suffix = "") {
+        /** Count matching characters between two strings, either from the start or end. */
         function commonOverlapLen(a, b, fromEnd = false) {
             const len = Math.min(a.length, b.length);
             let i = 0;
@@ -119,10 +106,10 @@ export function findQuoteRange(exact, prefix = "", suffix = "", cached) {
         }
         const hits = [];
         let idx = -1, from = 0;
-        while ((idx = allText.indexOf(exact, from)) !== -1) {
+        while ((idx = allText.indexOf(quote, from)) !== -1) {
             // score by how well prefix matches the preceding context
             const pre = allText.slice(Math.max(0, idx - prefix.length), idx);
-            const suf = allText.slice(idx + exact.length, idx + exact.length + suffix.length);
+            const suf = allText.slice(idx + quote.length, idx + quote.length + suffix.length);
             let score = 1;
             if (prefix)
                 score += commonOverlapLen(pre, prefix); // how much of the wanted prefix matches
@@ -134,22 +121,22 @@ export function findQuoteRange(exact, prefix = "", suffix = "", cached) {
         hits.sort((a, b) => b.score - a.score);
         return hits[0]?.idx ?? -1;
     }
-    if (!exact)
+    if (!quote)
         return null;
-    const nodes = cached?.nodes ?? textContentStream(document.body ?? document);
-    const exactNorm = normalizeText(exact);
-    // Build the same corpus we will map back onto
+    const nodes = cached?.nodes ?? getAllTextNode(document.body ?? document);
+    const quoteNorm = normalizeText(quote);
+    // build the corpus we will map back onto
     const allText = cached?.allText ?? nodes.map((n) => n.text).join("");
-    const startIdx = findBestMatch(allText, exactNorm, prefix, suffix);
+    const startIdx = findBestMatch(allText, quoteNorm, prefix, suffix);
     if (startIdx === -1)
         return null;
-    const endIdx = startIdx + exactNorm.length;
+    const endIdx = startIdx + quoteNorm.length;
     const range = document.createRange();
     let sNode = null;
     let sOffset = 0;
     let eNode = null;
     let eOffset = 0;
-    // Map offsets → DOM Range
+    // map offsets to dom range
     for (const seg of nodes) {
         if (sNode == null && startIdx >= seg.start && startIdx <= seg.end) {
             sNode = seg.node;
@@ -168,15 +155,15 @@ export function findQuoteRange(exact, prefix = "", suffix = "", cached) {
     }
     return null;
 }
-/** Relative click point within element box, falling back to center when zero-sized. */
-export function elementBoxPct(el, clientX, clientY) {
+/** Given the element and the absolute click point (in px), find the click point relative to the element box (in percent) */
+export function getClickRelativePos(el, clientX, clientY) {
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0)
         return { x: 0.5, y: 0.5 };
     return { x: (clientX - r.left) / r.width, y: (clientY - r.top) / r.height };
 }
-/** Choose a sensible host for a text range (block/inline). */
-export function elementForRange(range) {
+/** Given a text selection range, find the nearest meaningful block or inline element that contains it (e.g. p, h1, li, blockquote, div, etc.) */
+export function getRangeContainer(range) {
     let node = range.startContainer;
     if (node.nodeType === Node.TEXT_NODE) {
         node = node.parentElement;
@@ -185,84 +172,130 @@ export function elementForRange(range) {
     const fallback = document.body ?? document.documentElement;
     return (element?.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,code,figure,section,article,div,span,a") || fallback);
 }
-/** Build prefix/suffix context around a selection range, constrained by `max`. */
+/** Returns up to max normalized characters immediately before and after a selection */
 export function selectionContext(range, max) {
-    function grabLeft(node, offset, need) {
-        let out = "", n = node, o = offset;
-        while (n && need > 0) {
-            if (n.nodeType === Node.TEXT_NODE &&
-                n.parentElement &&
-                !n.parentElement.matches("script,style,noscript,template")) {
-                const txtNode = n;
-                const text = normalizeText(txtNode.nodeValue || "");
-                out = (n === node ? text.slice(0, o) : text) + out;
-                if (out.length >= need)
-                    break;
+    /**
+     * Resolve a DOM Range boundary (start or end) into a concrete text node
+     * and its character offset within that node.
+     */
+    function resolveBoundary(range, side) {
+        const isStart = side === "start";
+        const container = isStart ? range.startContainer : range.endContainer;
+        const offset = isStart ? range.startOffset : range.endOffset;
+        // Case 1: boundary is directly inside a text node → trivial mapping.
+        if (container.nodeType === Node.TEXT_NODE) {
+            return { node: container, charOffset: offset };
+        }
+        // Case 2: boundary lies inside an element (offset = child index).
+        const element = container;
+        const childCount = element.childNodes.length;
+        const idx = Math.max(0, Math.min(offset, childCount));
+        // Select an initial seed node based on boundary side and offset:
+        //  - For "start": if at index 0, stay on the element (so walker moves left/out);
+        //                 otherwise take the previous child at idx − 1.
+        //  - For "end":   if at index = length, stay on the element (so walker moves right/out);
+        //                 otherwise take the child at idx.
+        let currentNode;
+        if (isStart) {
+            currentNode = idx === 0 ? element : element.childNodes[idx - 1];
+            // Descend to the deepest leaf toward the left edge.
+            while (currentNode && currentNode.lastChild && currentNode !== element) {
+                currentNode = currentNode.lastChild;
             }
-            let prev = n.previousSibling;
-            while (prev && prev.nodeType !== Node.TEXT_NODE)
-                prev = prev.previousSibling;
-            if (!prev) {
-                n = n.parentNode;
-                if (!n || !n.previousSibling)
+        }
+        else {
+            currentNode = idx === childCount ? element : element.childNodes[idx];
+            // Descend to the deepest leaf toward the right edge.
+            while (currentNode && currentNode.firstChild && currentNode !== element) {
+                currentNode = currentNode.firstChild;
+            }
+        }
+        // If the resolved node is a text node, compute its internal offset:
+        //  - left/start side → offset at end of text
+        //  - right/end side  → offset at beginning
+        if (currentNode && currentNode.nodeType === Node.TEXT_NODE) {
+            const charOffset = isStart ? currentNode.data.length : 0;
+            return { node: currentNode, charOffset };
+        }
+        // Otherwise return the non-text node (element, comment, etc.);
+        // the grabText walker will step outward to a suitable sibling.
+        return { node: currentNode, charOffset: 0 };
+    }
+    /** Return up to `need` normalized characters adjacent to (left/right of) a node + offset. -1 for left, 1 for right. */
+    function grabText(startNode, startOffset, maxChars, direction) {
+        let collectedText = "";
+        let currentNode = startNode;
+        // If the seed is a text node, only slice from offset in that first iteration.
+        const shouldSliceFirst = startNode?.nodeType === Node.TEXT_NODE;
+        let isFirstIteration = true;
+        while (currentNode && maxChars > 0) {
+            // Collect text content if this is a visible text node.
+            if (currentNode.nodeType === Node.TEXT_NODE &&
+                currentNode.parentElement &&
+                !currentNode.parentElement.matches("script,style,noscript,template")) {
+                const normalized = normalizeText(currentNode.nodeValue || "");
+                if (direction < 0) {
+                    // Moving left: prepend text (slice left of offset on first iteration)
+                    collectedText =
+                        (isFirstIteration && shouldSliceFirst
+                            ? normalized.slice(0, startOffset)
+                            : normalized) + collectedText;
+                }
+                else {
+                    // Moving right: append text (slice right of offset on first iteration)
+                    collectedText +=
+                        isFirstIteration && shouldSliceFirst
+                            ? normalized.slice(startOffset)
+                            : normalized;
+                }
+                if (collectedText.length >= maxChars)
                     break;
-                n = n.previousSibling;
-                while (n && n.lastChild)
-                    n = n.lastChild;
+                isFirstIteration = false;
+            }
+            // Move to the next (or previous) sibling text node
+            let sibling = direction < 0 ? currentNode.previousSibling : currentNode.nextSibling;
+            while (sibling && sibling.nodeType !== Node.TEXT_NODE) {
+                sibling = direction < 0 ? sibling.previousSibling : sibling.nextSibling;
+            }
+            // If no sibling, move up to parent and continue traversal outward
+            if (!sibling) {
+                currentNode = currentNode.parentNode;
+                if (!currentNode)
+                    break;
+                currentNode =
+                    direction < 0 ? currentNode.previousSibling : currentNode.nextSibling;
+                if (!currentNode)
+                    break;
+                // Descend to the deepest leaf node in that direction
+                while (direction < 0 ? currentNode.lastChild : currentNode.firstChild) {
+                    currentNode =
+                        direction < 0 ? currentNode.lastChild : currentNode.firstChild;
+                }
             }
             else {
-                n = prev;
+                currentNode = sibling;
             }
-            o =
-                n && n.nodeType === Node.TEXT_NODE
-                    ? (n.nodeValue || "").length
-                    : 0;
+            // Update offset for the next node
+            if (currentNode && currentNode.nodeType === Node.TEXT_NODE) {
+                startOffset =
+                    direction < 0 ? (currentNode.nodeValue || "").length : 0;
+            }
+            isFirstIteration = false;
         }
-        return out.slice(-need);
+        // Clip to requested size (right-trim for leftward traversal)
+        return direction < 0
+            ? collectedText.slice(-maxChars)
+            : collectedText.slice(0, maxChars);
     }
-    function grabRight(node, offset, need) {
-        let out = "", n = node, o = offset;
-        while (n && need > 0) {
-            if (n.nodeType === Node.TEXT_NODE &&
-                n.parentElement &&
-                !n.parentElement.matches("script,style,noscript,template")) {
-                const txtNode = n;
-                const text = normalizeText(txtNode.nodeValue || "");
-                out += n === node ? text.slice(o) : text;
-                if (out.length >= need)
-                    break;
-            }
-            let next = n.nextSibling;
-            while (next && next.nodeType !== Node.TEXT_NODE)
-                next = next.nextSibling;
-            if (!next) {
-                n = n.parentNode;
-                if (!n || !n.nextSibling)
-                    break;
-                n = n.nextSibling;
-                while (n && n.firstChild)
-                    n = n.firstChild;
-            }
-            else
-                n = next;
-            o = 0;
-        }
-        return out.slice(0, need);
-    }
-    const sc = range.startContainer.nodeType === Node.TEXT_NODE
-        ? range.startContainer
-        : range.startContainer.firstChild;
-    const ec = range.endContainer.nodeType === Node.TEXT_NODE
-        ? range.endContainer
-        : range.endContainer.firstChild;
-    const so = range.startOffset, eo = range.endOffset;
+    const { node: startNode, charOffset: startOffset } = resolveBoundary(range, "start");
+    const { node: endNode, charOffset: endOffset } = resolveBoundary(range, "end");
     return {
-        prefix: sc ? grabLeft(sc, so, max) : "",
-        suffix: ec ? grabRight(ec, eo, max) : "",
+        prefix: startNode ? grabText(startNode, startOffset, max, -1) : "",
+        suffix: endNode ? grabText(endNode, endOffset, max, 1) : "",
     };
 }
-/** Whitelist of stable attributes to capture (truncated to keep anchors light). */
-export function stableAttrs(el) {
+/** Whitelist of stable attributes to capture */
+export function getStableAttrs(el) {
     if (!el || el.nodeType !== Node.ELEMENT_NODE)
         return {};
     const out = {};
@@ -278,9 +311,40 @@ export function stableAttrs(el) {
     }
     return out;
 }
-/** Document vertical scroll percentage. */
-export function docScrollPct() {
+/** Document vertical scroll percentage */
+export function getScrollPercentage() {
     const doc = document.documentElement;
     const h = doc.scrollHeight - doc.clientHeight;
     return h <= 0 ? 0 : doc.scrollTop / h;
+}
+/** Get coarse selector (i.e. a stable parent/ancestor node for anchoring) */
+export function getCoarseContainer(el) {
+    /** climb a few levels until we hit a block-ish ancestor or enough text */
+    function getBlockAncestor(el, maxHops = 4) {
+        let cur = el;
+        let hops = 0;
+        while (cur && hops < maxHops) {
+            const cs = getComputedStyle(cur);
+            const isBlockish = cs.display !== "inline";
+            const textLen = normalizeText(cur.textContent || "").length;
+            if (isBlockish && textLen >= 64)
+                return cur;
+            cur = cur.parentElement;
+            hops++;
+        }
+        return el.closest("div,section,article,main") || el;
+    }
+    // Prefer semantic/article-like containers
+    const coarse = el.closest([
+        "article",
+        "section",
+        "main",
+        "[role='main']",
+        ".content",
+        ".post",
+        ".entry",
+        ".markdown-body",
+        ".prose",
+    ].join(",")) || getBlockAncestor(el);
+    return coarse ?? document.body ?? document.documentElement;
 }
