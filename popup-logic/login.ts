@@ -8,7 +8,7 @@ const loginBtn = document.getElementById("loginBtn");
 const statusRow = document.getElementById("statusRow");
 const onOffToggle = document.getElementById("on-off-toggle");
 
-function setStatus(text) {
+function setStatus(text: string) {
   statusEl.textContent = text;
 }
 

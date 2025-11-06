@@ -3,7 +3,7 @@
  * -----------------------------------------------------------------------------
  * Purpose:
  *   Orchestrates the PageWorms experience around adapter-driven anchoring,
- *   storage, rendering, and event wiring.
+ *   storage, ui, rendering, and event wiring.
  *
  * Responsibilities:
  *   - init(): Bootstraps styles, storage hydration, observers, and initial render.
@@ -100,7 +100,7 @@ export class PageWorms {
   async init(): Promise<void> {
     await this.load();
     this._observe();
-    await this.renderingAdapter.renderAll(this.worms);
+    await this.renderAll();
   }
 
   /** Tear down observers/listeners and remove rendered worm elements. */
@@ -117,6 +117,7 @@ export class PageWorms {
     this.uiAdapter.reset();
   }
 
+  /** thin wrapper to expose renderAll to extension scripts */
   async renderAll(): Promise<void> {
     await this.renderingAdapter.renderAll(this.worms);
   }
@@ -128,7 +129,7 @@ export class PageWorms {
   /** Wire resize/scroll/mutation observers with a throttled render loop. */
   private _observe(): void {
     const scheduleRender = throttle(() => {
-      void this.renderingAdapter.renderAll(this.worms);
+      void this.renderAll();
     }, DEFAULTS.throttleMs);
     this.observerAdapter.start({
       scheduleRender,
@@ -217,7 +218,7 @@ export class PageWorms {
     this._logWormEvent("create", worm, { via: "contextmenu" });
     await this._persist();
     this.renderingAdapter.drawWorm(worm);
-    await this.renderingAdapter.renderAll(this.worms);
+    await this.renderAll();
     await this.uiAdapter.openViewer(worm.id);
     return worm;
   }
@@ -236,7 +237,7 @@ export class PageWorms {
 
     await this._persist();
     this._logWormEvent("update", worm, { via: "ui" });
-    await this.renderingAdapter.renderAll(this.worms);
+    await this.renderAll();
     return worm;
   }
 
@@ -249,7 +250,7 @@ export class PageWorms {
 
     await this._persist();
     this._logWormEvent("delete", worm, { via: "ui" });
-    await this.renderingAdapter.renderAll(this.worms);
+    await this.renderAll();
   }
 
   // #endregion
