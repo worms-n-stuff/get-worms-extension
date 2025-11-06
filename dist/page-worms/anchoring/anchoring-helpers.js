@@ -161,7 +161,12 @@ export function getClickRelativePos(el, clientX, clientY) {
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0)
         return { x: 0.5, y: 0.5 };
-    return { x: (clientX - r.left) / r.width, y: (clientY - r.top) / r.height };
+    const x = (clientX - r.left) / r.width;
+    const y = (clientY - r.top) / r.height;
+    return {
+        x: clamp01(x),
+        y: clamp01(y),
+    };
 }
 /** Given a text selection range, find the nearest meaningful block or inline element that contains it (e.g. p, h1, li, blockquote, div, etc.) */
 export function getRangeContainer(range) {
@@ -348,4 +353,23 @@ export function getCoarseContainer(el) {
         ".prose",
     ].join(",")) || getBlockAncestor(el);
     return coarse ?? document.body ?? document.documentElement;
+}
+/** clamps percentages to [0, 1] */
+function clamp01(value) {
+    if (!Number.isFinite(value))
+        return 0.5;
+    if (value < 0)
+        return 0;
+    if (value > 1)
+        return 1;
+    return value;
+}
+/** Check if one rectangle fully contains another */
+export function rectContains(outer, inner) {
+    if (!outer || !inner)
+        return false;
+    return (inner.left >= outer.left &&
+        inner.right <= outer.right &&
+        inner.top >= outer.top &&
+        inner.bottom <= outer.bottom);
 }

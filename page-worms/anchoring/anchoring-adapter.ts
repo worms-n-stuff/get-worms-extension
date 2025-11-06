@@ -36,6 +36,7 @@ import {
   getRangeContainer,
   getCssPath,
   getCoarseContainer,
+  rectContains,
 } from "./anchoring-helpers.js";
 
 // TextCache helper
@@ -57,7 +58,7 @@ class DomAnchoringAdapter implements AnchoringAdapter {
     clickY,
     selection,
   }: CreateAnchorOptions): WormPosition {
-    // Prefer a meaningful container for selections; otherwise derive from target.
+    // Prefer the selection container when present; otherwise fall back to the event target.
     const baseEl = selection
       ? getRangeContainer(selection)
       : target instanceof Element
@@ -66,6 +67,7 @@ class DomAnchoringAdapter implements AnchoringAdapter {
       ? target.parentElement
       : null;
 
+    // fineEl is the primary element we point to via selectorFine.
     const fineEl = (baseEl ??
       document.body ??
       document.documentElement ??
@@ -91,14 +93,52 @@ class DomAnchoringAdapter implements AnchoringAdapter {
       }
     }
 
-    // Click-relative percentage (fallback to center if coords are missing)
-    const hasClick = Number.isFinite(clickX) && Number.isFinite(clickY);
-    const rel = hasClick
-      ? getClickRelativePos(fineEl, clickX!, clickY!)
-      : { x: 0.5, y: 0.5 };
+    // Decide which host element to use for relBoxPct and future fallbacks.
+    const coarseHost =
+      coarseEl instanceof HTMLElement ? coarseEl : (coarseEl as HTMLElement | null);
+    let hostForRel: HTMLElement = fineEl;
+    const selectionRect =
+      selection && !selection.collapsed
+        ? selection.getBoundingClientRect()
+        : null;
+    if (
+      selectionRect &&
+      selectionRect.width > 0 &&
+      selectionRect.height > 0 &&
+      coarseHost
+    ) {
+      const fineRect = fineEl.getBoundingClientRect();
+      if (!rectContains(fineRect, selectionRect)) {
+        hostForRel = coarseHost;
+      }
+    } else if (coarseHost && hostForRel === fineEl && fineEl === document.body) {
+      hostForRel = coarseHost;
+    }
+
+    // Start with the explicit click location if provided.
+    let relClientX = Number.isFinite(clickX) ? (clickX as number) : NaN;
+    let relClientY = Number.isFinite(clickY) ? (clickY as number) : NaN;
+
+    if (
+      selectionRect &&
+      selectionRect.width > 0 &&
+      selectionRect.height > 0
+    ) {
+      relClientX = selectionRect.left + selectionRect.width / 2;
+      relClientY = selectionRect.top + selectionRect.height / 2;
+    }
+
+    if (!Number.isFinite(relClientX) || !Number.isFinite(relClientY)) {
+      const hostRect = hostForRel.getBoundingClientRect();
+      relClientX = hostRect.left + hostRect.width / 2;
+      relClientY = hostRect.top + hostRect.height / 2;
+    }
+
+    // Compute a percentage relative to the chosen host.
+    const rel = getClickRelativePos(hostForRel, relClientX, relClientY);
 
     // Stable attributes (cap potential data: URLs to avoid bloat)
-    const attrs = getStableAttrs(fineEl);
+    const attrs = getStableAttrs(hostForRel);
     if (attrs.src && attrs.src.startsWith("data:"))
       attrs.src = attrs.src.slice(0, 256);
 
@@ -106,7 +146,7 @@ class DomAnchoringAdapter implements AnchoringAdapter {
       dom: { selectorFine, selectorCoarse },
       textQuote,
       element: {
-        tag: fineEl.tagName || "BODY",
+        tag: hostForRel.tagName || "BODY",
         attrs,
         relBoxPct: rel,
       },
