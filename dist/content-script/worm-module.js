@@ -5,7 +5,6 @@
  * 2. Handles add new worm action (from context menu)
  */
 (() => {
-    const KEY = "pw_enabled";
     let instance = null;
     let attachPageWormsFn = null;
     let alive = true;
@@ -13,6 +12,12 @@
     const wormsModuleUrl = chrome.runtime.getURL("dist/page-worms/page-worms.js");
     const wormsReady = import(wormsModuleUrl).then((mod) => {
         attachPageWormsFn = mod.attachPageWorms;
+    });
+    let readWormsToggle;
+    let PW_TOGGLE_KEY = "pw_enabled";
+    const togglesReady = import(chrome.runtime.getURL("dist/shared/toggles.js")).then((mod) => {
+        readWormsToggle = mod.readWormsToggle;
+        PW_TOGGLE_KEY = mod.PW_TOGGLE_KEY;
     });
     /* -------------------------------------------------------------------------- */
     /*                            Init & On/Off Toggle                            */
@@ -64,7 +69,7 @@
     })();
     // Storage change handler (defined as a named fn so we can remove it on pagehide)
     function onStorageChange(changes, area) {
-        if (area === "sync" && changes[KEY]) {
+        if (area === "sync" && changes[PW_TOGGLE_KEY]) {
             if (!isContextAlive())
                 return;
             ensureState();
@@ -76,9 +81,10 @@
         if (!isContextAlive())
             return false;
         try {
+            await togglesReady;
             // Guard again inside the try in case context dies during the await.
-            const obj = await chrome.storage.sync.get(KEY);
-            return !!obj[KEY];
+            const enabled = await readWormsToggle();
+            return enabled;
         }
         catch {
             // If the context died mid-await, Chrome throws "Extension context invalidated"
@@ -154,7 +160,8 @@
             ? (selection.commonAncestorContainer.nodeType === 1
                 ? selection.commonAncestorContainer
                 : selection.commonAncestorContainer.parentElement) || document.body
-            : document.elementFromPoint(point.clientX, point.clientY) || document.body;
+            : document.elementFromPoint(point.clientX, point.clientY) ||
+                document.body;
         await inst.addWorm({
             target,
             clickX: point.clientX,

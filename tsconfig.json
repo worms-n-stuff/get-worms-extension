@@ -19,7 +19,8 @@
     "content-script/**/*.ts",
     "page-worms/**/*.ts",
     "popup-logic/**/*.ts",
-    "service-worker/**/*.ts"
+    "service-worker/**/*.ts",
+    "shared/**/*.ts"
   ],
   "exclude": ["dist", "node_modules"]
 }

@@ -33,7 +33,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["dist/page-worms/*.js", "page-worms/*.css", "fonts/**/*.ttf"],
+      "resources": ["dist/page-worms/*.js", "page-worms/*.css", "fonts/**/*.ttf", "dist/shared/*.js"],
       "matches": ["<all_urls>"]
     }
   ]

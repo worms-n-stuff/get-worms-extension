@@ -4,7 +4,7 @@
  * - controls the on/off toggle
  * - create the "Add Worm" context menu item
  */
-const KEY = "pw_enabled"; // global ON/OFF
+import { ensureWormsToggle, readWormsToggle, PW_TOGGLE_KEY, } from "../shared/toggles.js";
 const MENU_ID_ADD_WORM = "worms:add";
 const MENU_CONTEXTS = [
     chrome.contextMenus.ContextType.PAGE,
@@ -15,7 +15,7 @@ const MENU_CONTEXTS = [
     chrome.contextMenus.ContextType.AUDIO,
 ];
 chrome.runtime.onInstalled.addListener(async () => {
-    await ensureToggleDefault();
+    await ensureWormsToggle();
     createContextMenu();
 });
 chrome.tabs.onActivated.addListener(updateActionUI);
@@ -24,13 +24,13 @@ chrome.tabs.onUpdated.addListener((_tabId, info, _tab) => {
         updateActionUI();
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "sync" && changes[KEY]) {
-        console.log("Worms toggle changed:", changes[KEY].newValue);
+    if (area === "sync" && changes[PW_TOGGLE_KEY]) {
+        console.log("Worms toggle changed:", changes[PW_TOGGLE_KEY].newValue);
         updateActionUI();
     }
 });
 async function updateActionUI() {
-    const { [KEY]: enabled } = await chrome.storage.sync.get(KEY);
+    const enabled = await readWormsToggle();
     const text = enabled ? "ON" : "OFF";
     chrome.action.setBadgeText({ text });
     chrome.action.setBadgeBackgroundColor({
@@ -38,11 +38,6 @@ async function updateActionUI() {
     });
 }
 // ---- Context Menu: "Add Worm" -----------------------------------------
-async function ensureToggleDefault() {
-    const { [KEY]: enabled } = await chrome.storage.sync.get(KEY);
-    if (enabled === undefined)
-        await chrome.storage.sync.set({ [KEY]: false });
-}
 function createContextMenu() {
     try {
         chrome.contextMenus.create({
