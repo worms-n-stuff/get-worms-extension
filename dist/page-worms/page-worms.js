@@ -27,10 +27,10 @@
 import { createAnchoringAdapter, } from "./anchoring/index.js";
 import { createStorageAdapter, } from "./storage/index.js";
 import { createObserverAdapter, } from "./observer/index.js";
+import { createRenderingAdapter, } from "./rendering/index.js";
 import { DEFAULTS } from "./constants.js";
-import { uuid, throttle, getCanonicalUrl } from "./utils.js";
+import { throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
-import { createWormEl, makePositioningContext, createOrUpdateBox, } from "./layer.js";
 import { WormUI } from "./ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
 export class PageWorms {
@@ -41,10 +41,6 @@ export class PageWorms {
         injectStyles();
         this.url = getCanonicalUrl();
         this.worms = [];
-        this.wormEls = new Map();
-        this._hostByWorm = new Map(); // id -> resolved hostEl (for diffing)
-        this._anchorCache = null;
-        this._raf = null;
         this._idCounter = 0;
         this._needsMigration = false;
         this._ui = new WormUI({
@@ -57,6 +53,11 @@ export class PageWorms {
         this.anchoringAdapter = createAnchoringAdapter();
         this.storageAdapter = createStorageAdapter(storageOption);
         this.observerAdapter = createObserverAdapter();
+        this.renderingAdapter = createRenderingAdapter({
+            anchoringAdapter: this.anchoringAdapter,
+            observerAdapter: this.observerAdapter,
+            wireWormElement: (el) => this._ui.wireWormElement(el),
+        });
     }
     /**
      * Initialize the overlay layer, hydrate persisted worms, and start observers.
@@ -69,35 +70,14 @@ export class PageWorms {
     /** Tear down observers/listeners and remove rendered worm elements. */
     destroy() {
         this.observerAdapter.stop();
-        for (const el of this.wormEls.values())
-            el.remove();
-        this.wormEls.clear();
+        this.renderingAdapter.clear();
         this._ui.destroy();
     }
     /** Remove all tracked worms and aggressively clear overlay artifacts. */
     clearScreen() {
-        // Cancel pending animation frames
-        if (this._raf) {
-            cancelAnimationFrame(this._raf);
-            this._raf = null;
-        }
-        // Remove the ones we know
-        for (const el of this.wormEls.values())
-            el.remove();
-        this.wormEls.clear();
+        this.renderingAdapter.clear();
         this.worms = [];
-        this._hostByWorm.clear();
-        this._anchorCache = null;
-        this.observerAdapter.disconnectHostObserver();
         this._ui.reset();
-        // Aggressive sweep
-        try {
-            document
-                .querySelectorAll(`.${DEFAULTS.wormClass}`)
-                .forEach((n) => n.remove());
-            document.querySelectorAll(`.pp-box`).forEach((n) => n.remove());
-        }
-        catch { }
     }
     // #endregion
     // ---------------------------------------------------------------------------
@@ -106,11 +86,7 @@ export class PageWorms {
     /** Wire resize/scroll/mutation observers with a throttled render loop. */
     _observe() {
         const scheduleRender = throttle(() => {
-            if (this._raf)
-                cancelAnimationFrame(this._raf);
-            this._raf = requestAnimationFrame(() => {
-                void this.renderAll();
-            });
+            void this.renderAll();
         }, DEFAULTS.throttleMs);
         this.observerAdapter.start({
             scheduleRender,
@@ -223,12 +199,7 @@ export class PageWorms {
         if (!worm)
             return;
         this.worms = this.worms.filter((w) => w.id !== wormId);
-        const el = this.wormEls.get(wormId);
-        if (el) {
-            el.remove();
-            this.wormEls.delete(wormId);
-        }
-        this._hostByWorm.delete(wormId);
+        this.renderingAdapter.removeWorm(wormId);
         await this._persist();
         this._logWormEvent("delete", worm, { via: "ui" });
         await this.renderAll();
@@ -239,137 +210,11 @@ export class PageWorms {
     // ---------------------------------------------------------------------------
     /** Re-render every worm, batching DOM writes behind requestAnimationFrame. */
     async renderAll() {
-        try {
-            // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
-            injectStyles();
-            // rebuild anchoring cache per render
-            this._anchorCache = this.anchoringAdapter.buildTextCache();
-            // Phase A: build a plan (reads)
-            const plan = [];
-            const nextIds = new Set(this.worms.map((w) => w.id));
-            // Remove stale elements (ids no longer present)
-            for (const [id, el] of this.wormEls) {
-                if (!nextIds.has(id)) {
-                    el.remove();
-                    this.wormEls.delete(id);
-                    this._hostByWorm.delete(id);
-                }
-            }
-            // For current worms, resolve hosts and compute placement
-            for (const worm of this.worms) {
-                const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this._anchorCache);
-                const fallbackHost = document.body ?? document.documentElement;
-                const host = (hostEl ?? fallbackHost);
-                // Decide container (can host children or not)
-                const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
-                const containerEl = cannotContain
-                    ? host.parentElement instanceof HTMLElement
-                        ? host.parentElement
-                        : document.body ?? host
-                    : host;
-                // Ensure positioning context (read ok)
-                makePositioningContext(containerEl);
-                // If we need a box overlay, compute (reads); created in write phase
-                const xPct = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
-                const yPct = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
-                plan.push({ worm, host, cannotContain, containerEl, xPct, yPct });
-            }
-            // Phase B: apply the plan (writes in a single rAF)
-            if (this._raf)
-                cancelAnimationFrame(this._raf);
-            this._raf = requestAnimationFrame(() => this._applyPlan(plan));
-        }
-        catch { }
-    }
-    /** Apply a precomputed render plan, reusing DOM nodes and minimizing writes. */
-    _applyPlan(plan) {
-        const activeIds = new Set(this.worms.map((w) => w.id));
-        for (const item of plan) {
-            const { worm, host, cannotContain, containerEl, xPct, yPct } = item;
-            // Guard against worms no longer present
-            if (!activeIds.has(worm.id)) {
-                this.wormEls.delete(worm.id);
-                this._hostByWorm.delete(worm.id);
-                continue;
-            }
-            // (a) Reuse existing element or create if missing
-            let wormEl = this.wormEls.get(worm.id);
-            if (!wormEl) {
-                wormEl = createWormEl(); // already sets class, aria-label
-                wormEl.dataset.wormId = String(worm.id);
-                this.wormEls.set(worm.id, wormEl);
-            }
-            // (b) Determine the final parent for this wormEl
-            let parentEl = containerEl;
-            let box = null;
-            if (cannotContain) {
-                // Create/update overlay box aligned to host (write)
-                box = createOrUpdateBox(containerEl, host, uuid);
-                parentEl = box;
-                // Make sure host resize observer watches this host (cheap)
-                this.observerAdapter.observeHost(host);
-            }
-            // (c) If host changed, reparent; else leave it alone
-            const prevHost = this._hostByWorm.get(worm.id);
-            if (prevHost !== host) {
-                if (wormEl.parentElement !== parentEl) {
-                    parentEl.appendChild(wormEl);
-                }
-                this._hostByWorm.set(worm.id, host);
-            }
-            else {
-                // Host same; parent might still differ (e.g., box recreated)
-                if (wormEl.parentElement !== parentEl) {
-                    parentEl.appendChild(wormEl);
-                }
-            }
-            // (d) Only write style when the value actually changed (avoids layout work)
-            const prevL = wormEl.dataset.l, prevT = wormEl.dataset.t;
-            const l = String(xPct), t = String(yPct);
-            if (prevL !== l) {
-                wormEl.style.left = l + "%";
-                wormEl.dataset.l = l;
-            }
-            if (prevT !== t) {
-                wormEl.style.top = t + "%";
-                wormEl.dataset.t = t;
-            }
-            this._ui.wireWormElement(wormEl);
-        }
-        this._raf = null;
+        await this.renderingAdapter.renderAll(this.worms);
     }
     /** Render a single worm immediately (used for freshly created annotations). */
     _drawWorm(worm) {
-        injectStyles();
-        const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this._anchorCache);
-        const fallbackHost = document.body ?? document.documentElement;
-        const host = (hostEl ?? fallbackHost);
-        // Container choice
-        const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
-        const containerEl = cannotContain
-            ? host.parentElement instanceof HTMLElement
-                ? host.parentElement
-                : document.body ?? host
-            : host;
-        // Positioning context
-        makePositioningContext(containerEl);
-        // Box overlay if needed
-        const targetContainer = cannotContain
-            ? createOrUpdateBox(containerEl, host, uuid)
-            : containerEl;
-        // Worm
-        const wormEl = createWormEl();
-        wormEl.dataset.wormId = String(worm.id);
-        const x = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
-        const y = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
-        wormEl.style.left = x + "%";
-        wormEl.style.top = y + "%";
-        targetContainer.appendChild(wormEl);
-        this.wormEls.set(worm.id, wormEl);
-        this._ui.wireWormElement(wormEl);
-        // Observe host for cheap overlay resync
-        if (cannotContain)
-            this.observerAdapter.observeHost(host);
+        this.renderingAdapter.drawWorm(worm);
     }
     // #endregion
     // ---------------------------------------------------------------------------
