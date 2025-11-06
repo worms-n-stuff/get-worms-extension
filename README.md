@@ -1,6 +1,9 @@
 # get worms browser extension
 
-This repository contains the **get worms** Chrome extension. It lets authenticated users create and view "worms" (inline comments) on any web page. The codebase has been migrated to TypeScript while preserving the existing runtime behaviour. Compiled JavaScript assets live in `dist/` so the extension can still be shipped as standard JS.
+This repository contains the **get worms** Chrome extension. It lets authenticated users create and view "worms" (inline comments) on any web page. There are two parts to this extension: 
+1. the page worms module (the ui/anchoring logic), which resides in page-worms, 
+2. and the auth flow, which has relevant codes in content-script, popup-logic, service-worker, and shared. 
+All other code are connections which connect the two parts and them to the extension. A important file for connection is manifest.json, which importantly registers what scripts/ui the google extension should use and in what context.
 
 ## Project structure
 
@@ -10,7 +13,7 @@ This repository contains the **get worms** Chrome extension. It lets authenticat
 - `service-worker/` – background/service worker modules (auth, menu wiring, toggle state).
 - `page-worms/styles.css` – styles injected into target pages.
 - `dist/` – build output produced by the TypeScript compiler (mirrors the folder layout above).
-- `shared/` – cross-context helpers (auth message constants, toggle utilities).
+- `shared/` – cross-context helpers for content-script/popup-logic/service-worker (auth message constants, toggle utilities).
 
 ## Getting started
 
@@ -28,11 +31,5 @@ This repository contains the **get worms** Chrome extension. It lets authenticat
 4. Click **Load unpacked** and choose the repository root (the folder containing `manifest.json`).
 
 The manifest now points to scripts inside `dist/`, so the extension must be rebuilt after TypeScript changes.
-
-## Notes for contributors
-
-- Static assets (HTML, CSS, icons) remain alongside the source files; only TypeScript is compiled into `dist/`.
-- The popup HTML now sources its scripts from `dist/popup-logic/*`. If you add new popup modules, remember to update both the TypeScript source and the compiled output via `npm run build`.
-- `chrome.runtime.getURL` lookups expect compiled modules in `dist/`, so avoid moving built files without updating those strings.
 
 Happy worming!
