@@ -85,7 +85,7 @@ export class PageWorms {
   private _needsMigration: boolean;
   private _ui: WormUI;
   // ---------------------------------------------------------------------------
-  // #region Lifecycle & Observers
+  // #region Lifecycle
   // ---------------------------------------------------------------------------
   constructor(storageOption?: StorageOption) {
     injectStyles();
@@ -118,31 +118,6 @@ export class PageWorms {
     await this.load();
     this._observe();
     await this.renderAll();
-  }
-
-  /** Wire resize/scroll/mutation observers with a throttled render loop. */
-  private _observe(): void {
-    const scheduleRender = throttle(() => {
-      if (this._raf) cancelAnimationFrame(this._raf);
-      this._raf = requestAnimationFrame(() => {
-        void this.renderAll();
-      });
-    }, DEFAULTS.throttleMs);
-    this.observerAdapter.start({
-      scheduleRender,
-      isManagedNode: (node) => this._isManagedNode(node),
-    });
-  }
-
-  /** Returns true when a mutation target belongs to PageWorms-managed UI. */
-  private _isManagedNode(node: Node | null): boolean {
-    if (!node) return false;
-    const el = node instanceof Element ? node : node.parentElement;
-    return !!(
-      el &&
-      typeof el.closest === "function" &&
-      el.closest(OWNED_SELECTOR)
-    );
   }
 
   /** Tear down observers/listeners and remove rendered worm elements. */
@@ -182,8 +157,78 @@ export class PageWorms {
 
   // #endregion
   // ---------------------------------------------------------------------------
-  // #region Worm Management & Persistence
+  // #region Observer Integration
   // ---------------------------------------------------------------------------
+  /** Wire resize/scroll/mutation observers with a throttled render loop. */
+  private _observe(): void {
+    const scheduleRender = throttle(() => {
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = requestAnimationFrame(() => {
+        void this.renderAll();
+      });
+    }, DEFAULTS.throttleMs);
+    this.observerAdapter.start({
+      scheduleRender,
+      isManagedNode: (node) => this._isManagedNode(node),
+    });
+  }
+
+  /** Returns true when a mutation target belongs to PageWorms-managed UI. */
+  private _isManagedNode(node: Node | null): boolean {
+    if (!node) return false;
+    const el = node instanceof Element ? node : node.parentElement;
+    return !!(
+      el &&
+      typeof el.closest === "function" &&
+      el.closest(OWNED_SELECTOR)
+    );
+  }
+
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Persistence & Lookup
+  // ---------------------------------------------------------------------------
+  /** Load worms for the current canonical URL via the configured storage adapter. */
+  async load(): Promise<void> {
+    this.worms = await this.storageAdapter.get(this.url);
+    this._idCounter = this.worms.reduce((max, worm) => {
+      const id = Number(worm?.id);
+      return Number.isFinite(id) && id > max ? id : max;
+    }, 0);
+    this._needsMigration = false;
+    if (this._needsMigration) await this._persist();
+  }
+  /** Persist the in-memory worm list for the current page. */
+  private async _persist(): Promise<void> {
+    await this.storageAdapter.set(this.url, this.worms);
+  }
+
+  private _generateId(): number {
+    this._idCounter += 1;
+    return this._idCounter;
+  }
+
+  private _findWormById(id: number): WormRecord | null {
+    if (typeof id !== "number" || !Number.isFinite(id)) return null;
+    return this.worms.find((w) => w.id === id) || null;
+  }
+
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Normalization
+  // ---------------------------------------------------------------------------
+  private _normalizeStatus(value: unknown): WormStatus {
+    if (value === "friends" || value === "public") return value;
+    return "private";
+  }
+
+  // TODO: investigate if _nomalizeStatus is needed.
+
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Worm Actions & UI
+  // ---------------------------------------------------------------------------
+
   /**
    * Programmatically add a worm using either a selection or a click point.
    */
@@ -226,65 +271,6 @@ export class PageWorms {
     await this._ui.openViewer(worm.id);
     return worm;
   }
-
-  /** Load worms for the current canonical URL via the configured storage adapter. */
-  async load(): Promise<void> {
-    this.worms = await this.storageAdapter.get(this.url);
-    this._idCounter = this.worms.reduce((max, worm) => {
-      const id = Number(worm?.id);
-      return Number.isFinite(id) && id > max ? id : max;
-    }, 0);
-    this._needsMigration = false;
-    if (this._needsMigration) await this._persist();
-  }
-  /** Persist the in-memory worm list for the current page. */
-  private async _persist(): Promise<void> {
-    await this.storageAdapter.set(this.url, this.worms);
-  }
-
-  private _generateId(): number {
-    this._idCounter += 1;
-    return this._idCounter;
-  }
-
-  private _findWormById(id: number): WormRecord | null {
-    if (typeof id !== "number" || !Number.isFinite(id)) return null;
-    return this.worms.find((w) => w.id === id) || null;
-  }
-
-  /** Console instrumentation helper for creation/render lifecycle events. */
-  private _logWormEvent(
-    action: string,
-    worm: WormRecord | null,
-    extra: Record<string, unknown> = {}
-  ): void {
-    try {
-      console.log("[PageWorms]", {
-        action,
-        id: worm?.id,
-        url: this?.url,
-        created_at: worm?.created_at,
-        position: worm?.position,
-        ...extra,
-      });
-    } catch {}
-  }
-
-  // #endregion
-  // ---------------------------------------------------------------------------
-  // #region Normalization
-  // ---------------------------------------------------------------------------
-  private _normalizeStatus(value: unknown): WormStatus {
-    if (value === "friends" || value === "public") return value;
-    return "private";
-  }
-
-  // TODO: investigate if _nomalizeStatus is needed.
-
-  // #endregion
-  // ---------------------------------------------------------------------------
-  // #region UI Delegates
-  // ---------------------------------------------------------------------------
 
   private async _handleEditFromUI(
     wormId: number,
@@ -491,7 +477,29 @@ export class PageWorms {
     // Observe host for cheap overlay resync
     if (cannotContain) this.observerAdapter.observeHost(host);
   }
-  //#endregion
+  // #endregion
+  // ---------------------------------------------------------------------------
+  // #region Instrumentation
+  // ---------------------------------------------------------------------------
+  /** Console instrumentation helper for creation/render lifecycle events. */
+  private _logWormEvent(
+    action: string,
+    worm: WormRecord | null,
+    extra: Record<string, unknown> = {}
+  ): void {
+    try {
+      console.log("[PageWorms]", {
+        action,
+        id: worm?.id,
+        url: this?.url,
+        created_at: worm?.created_at,
+        position: worm?.position,
+        ...extra,
+      });
+    } catch {}
+  }
+
+  // #endregion
 }
 
 /** Convenience bootstrap for drop-in usage */

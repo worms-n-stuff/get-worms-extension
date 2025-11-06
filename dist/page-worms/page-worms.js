@@ -35,11 +35,10 @@ import { WormUI } from "./ui.js";
 const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
 export class PageWorms {
     // ---------------------------------------------------------------------------
-    // #region Lifecycle & Observers
+    // #region Lifecycle
     // ---------------------------------------------------------------------------
     constructor(storageOption) {
         injectStyles();
-        this._isRendering = false;
         this.url = getCanonicalUrl();
         this.worms = [];
         this.wormEls = new Map();
@@ -66,29 +65,6 @@ export class PageWorms {
         await this.load();
         this._observe();
         await this.renderAll();
-    }
-    /** Wire resize/scroll/mutation observers with a throttled render loop. */
-    _observe() {
-        const scheduleRender = throttle(() => {
-            if (this._raf)
-                cancelAnimationFrame(this._raf);
-            this._raf = requestAnimationFrame(() => {
-                void this.renderAll();
-            });
-        }, DEFAULTS.throttleMs);
-        this.observerAdapter.start({
-            scheduleRender,
-            isManagedNode: (node) => this._isManagedNode(node),
-        });
-    }
-    /** Returns true when a mutation target belongs to PageWorms-managed UI. */
-    _isManagedNode(node) {
-        if (!node)
-            return false;
-        const el = node instanceof Element ? node : node.parentElement;
-        return !!(el &&
-            typeof el.closest === "function" &&
-            el.closest(OWNED_SELECTOR));
     }
     /** Tear down observers/listeners and remove rendered worm elements. */
     destroy() {
@@ -125,7 +101,72 @@ export class PageWorms {
     }
     // #endregion
     // ---------------------------------------------------------------------------
-    // #region Worm Management & Persistence
+    // #region Observer Integration
+    // ---------------------------------------------------------------------------
+    /** Wire resize/scroll/mutation observers with a throttled render loop. */
+    _observe() {
+        const scheduleRender = throttle(() => {
+            if (this._raf)
+                cancelAnimationFrame(this._raf);
+            this._raf = requestAnimationFrame(() => {
+                void this.renderAll();
+            });
+        }, DEFAULTS.throttleMs);
+        this.observerAdapter.start({
+            scheduleRender,
+            isManagedNode: (node) => this._isManagedNode(node),
+        });
+    }
+    /** Returns true when a mutation target belongs to PageWorms-managed UI. */
+    _isManagedNode(node) {
+        if (!node)
+            return false;
+        const el = node instanceof Element ? node : node.parentElement;
+        return !!(el &&
+            typeof el.closest === "function" &&
+            el.closest(OWNED_SELECTOR));
+    }
+    // #endregion
+    // ---------------------------------------------------------------------------
+    // #region Persistence & Lookup
+    // ---------------------------------------------------------------------------
+    /** Load worms for the current canonical URL via the configured storage adapter. */
+    async load() {
+        this.worms = await this.storageAdapter.get(this.url);
+        this._idCounter = this.worms.reduce((max, worm) => {
+            const id = Number(worm?.id);
+            return Number.isFinite(id) && id > max ? id : max;
+        }, 0);
+        this._needsMigration = false;
+        if (this._needsMigration)
+            await this._persist();
+    }
+    /** Persist the in-memory worm list for the current page. */
+    async _persist() {
+        await this.storageAdapter.set(this.url, this.worms);
+    }
+    _generateId() {
+        this._idCounter += 1;
+        return this._idCounter;
+    }
+    _findWormById(id) {
+        if (typeof id !== "number" || !Number.isFinite(id))
+            return null;
+        return this.worms.find((w) => w.id === id) || null;
+    }
+    // #endregion
+    // ---------------------------------------------------------------------------
+    // #region Normalization
+    // ---------------------------------------------------------------------------
+    _normalizeStatus(value) {
+        if (value === "friends" || value === "public")
+            return value;
+        return "private";
+    }
+    // TODO: investigate if _nomalizeStatus is needed.
+    // #endregion
+    // ---------------------------------------------------------------------------
+    // #region Worm Actions & UI
     // ---------------------------------------------------------------------------
     /**
      * Programmatically add a worm using either a selection or a click point.
@@ -164,58 +205,6 @@ export class PageWorms {
         await this._ui.openViewer(worm.id);
         return worm;
     }
-    /** Load worms for the current canonical URL via the configured storage adapter. */
-    async load() {
-        this.worms = await this.storageAdapter.get(this.url);
-        this._idCounter = this.worms.reduce((max, worm) => {
-            const id = Number(worm?.id);
-            return Number.isFinite(id) && id > max ? id : max;
-        }, 0);
-        this._needsMigration = false;
-        if (this._needsMigration)
-            await this._persist();
-    }
-    /** Persist the in-memory worm list for the current page. */
-    async _persist() {
-        await this.storageAdapter.set(this.url, this.worms);
-    }
-    _generateId() {
-        this._idCounter += 1;
-        return this._idCounter;
-    }
-    _findWormById(id) {
-        if (typeof id !== "number" || !Number.isFinite(id))
-            return null;
-        return this.worms.find((w) => w.id === id) || null;
-    }
-    /** Console instrumentation helper for creation/render lifecycle events. */
-    _logWormEvent(action, worm, extra = {}) {
-        try {
-            console.log("[PageWorms]", {
-                action,
-                id: worm?.id,
-                url: this?.url,
-                created_at: worm?.created_at,
-                position: worm?.position,
-                ...extra,
-            });
-        }
-        catch { }
-    }
-    // #endregion
-    // ---------------------------------------------------------------------------
-    // #region Normalization
-    // ---------------------------------------------------------------------------
-    _normalizeStatus(value) {
-        if (value === "friends" || value === "public")
-            return value;
-        return "private";
-    }
-    // TODO: investigate if _nomalizeStatus is needed.
-    // #endregion
-    // ---------------------------------------------------------------------------
-    // #region UI Delegates
-    // ---------------------------------------------------------------------------
     async _handleEditFromUI(wormId, payload) {
         const worm = this._findWormById(wormId);
         if (!worm)
@@ -250,7 +239,6 @@ export class PageWorms {
     // ---------------------------------------------------------------------------
     /** Re-render every worm, batching DOM writes behind requestAnimationFrame. */
     async renderAll() {
-        this._isRendering = true;
         try {
             // Ensure styles still exist (some SPAs/Helmet can drop our style tag)
             injectStyles();
@@ -291,9 +279,7 @@ export class PageWorms {
                 cancelAnimationFrame(this._raf);
             this._raf = requestAnimationFrame(() => this._applyPlan(plan));
         }
-        finally {
-            this._isRendering = false;
-        }
+        catch { }
     }
     /** Apply a precomputed render plan, reusing DOM nodes and minimizing writes. */
     _applyPlan(plan) {
@@ -384,6 +370,24 @@ export class PageWorms {
         // Observe host for cheap overlay resync
         if (cannotContain)
             this.observerAdapter.observeHost(host);
+    }
+    // #endregion
+    // ---------------------------------------------------------------------------
+    // #region Instrumentation
+    // ---------------------------------------------------------------------------
+    /** Console instrumentation helper for creation/render lifecycle events. */
+    _logWormEvent(action, worm, extra = {}) {
+        try {
+            console.log("[PageWorms]", {
+                action,
+                id: worm?.id,
+                url: this?.url,
+                created_at: worm?.created_at,
+                position: worm?.position,
+                ...extra,
+            });
+        }
+        catch { }
     }
 }
 /** Convenience bootstrap for drop-in usage */
