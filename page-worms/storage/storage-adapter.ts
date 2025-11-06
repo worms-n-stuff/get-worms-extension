@@ -1,19 +1,15 @@
 /**
- * storage
+ * storage-adapter.ts
  * -----------------------------------------------------------------------------
- * Purpose:
- *   Persistence adapters with a tiny async API for portability.
+ * Persistence adapters for PageWorms with a thin async API.
  *
  * Responsibilities:
- *   - LocalStorageAdapter: Generic local storage.
- *   - ChromeStorageAdapter: Local storage for chrome extensions.
+ *   - LocalStorageAdapter: browser localStorage fallback.
+ *   - ChromeStorageAdapter: chrome.storage-backed persistence for extensions.
  *
- * Adapter API:
- *   - get(url): Promise<Array> -> return array of worm records for url.
- *   - set(url, arr): Promise<void> -> persist full array atomically.
- *
- * Notes:
- *   - Callers provide canonical URL string as key.
+ * Contract:
+ *   - get(url): load all WormRecord entries for a canonical URL.
+ *   - set(url, worms): persist the WormRecord array atomically.
  */
 
 // global config

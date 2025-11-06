@@ -1,11 +1,12 @@
 /**
- * dom-anchors.ts
+ * anchoring-helpers.ts
  * -----------------------------------------------------------------------------
- * Purpose:
- *   DOM anchoring helpers that resolve stable references for worms.
+ * Shared helpers for the DOM anchoring adapter.
  *
- * Note:
- *   Keep logic best-effort and fast; the actual location algorithm combines multiple anchors.
+ * Responsibilities:
+ *   - Generate stable selectors and attribute fingerprints.
+ *   - Build searchable text caches and resolve quote ranges.
+ *   - Provide geometry helpers for click-relative positioning.
  */
 
 import { normalizeText } from "../utils.js";

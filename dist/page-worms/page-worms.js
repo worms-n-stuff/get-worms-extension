@@ -1,14 +1,16 @@
 /**
- * page-worms.js
+ * page-worms.ts
  * -----------------------------------------------------------------------------
  * Purpose:
- *   Orchestrates anchoring, storage, rendering, and event wiring.
+ *   Orchestrates the PageWorms experience around adapter-driven anchoring,
+ *   storage, rendering, and event wiring.
  *
  * Responsibilities:
- *   - init(): Bootstraps styles, storage load, observers, and initial render.
- *   - addWorm(opts): Create a new worm at given click/selection.
- *   - renderAll(): Redraw all worms after DOM changes/resizes.
- *   - Anchoring adapter: Re-anchor via TextQuote -> selector -> tag+attrs -> body.
+ *   - init(): Bootstraps styles, storage hydration, observers, and initial render.
+ *   - addWorm(opts): Create a new worm from adapter-derived position data.
+ *   - renderAll(): Redraw all worms after DOM changes/resizes via adapter resolution.
+ *   - Anchoring adapter: Resolve persisted worm positions using multi-strategy fallbacks.
+ *   - Storage adapter: Persist worm collections keyed by canonical URL.
  *   - _observe(): Resize/scroll/mutation listeners with throttled rerender.
  *   - clearScreen(): Remove rendered worms and tear down DOM overlays.
  *   - destroy(): Cleanup listeners/observers and DOM artifacts.
@@ -24,6 +26,7 @@
 // Adapters
 import { createAnchoringAdapter, } from "./anchoring/index.js";
 import { createStorageAdapter, } from "./storage/index.js";
+import { createObserverAdapter, } from "./observer/index.js";
 import { DEFAULTS } from "./constants.js";
 import { uuid, throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
@@ -40,10 +43,6 @@ export class PageWorms {
         this.url = getCanonicalUrl();
         this.worms = [];
         this.wormEls = new Map();
-        this._resizeObs = null;
-        this._mutObs = null;
-        this._hostRO = null;
-        this._scrollTimer = null;
         this._hostByWorm = new Map(); // id -> resolved hostEl (for diffing)
         this._anchorCache = null;
         this._raf = null;
@@ -56,17 +55,9 @@ export class PageWorms {
             },
             onDelete: (id) => this._handleDeleteFromUI(id),
         });
-        this._onAnyScroll = () => {
-            const root = document.documentElement;
-            if (!root.classList.contains("pp-scrolling"))
-                root.classList.add("pp-scrolling");
-            if (this._scrollTimer)
-                clearTimeout(this._scrollTimer);
-            this._scrollTimer = setTimeout(() => root.classList.remove("pp-scrolling"), 140);
-        };
-        this._reposition = null;
         this.anchoringAdapter = createAnchoringAdapter();
         this.storageAdapter = createStorageAdapter(storageOption);
+        this.observerAdapter = createObserverAdapter();
     }
     /**
      * Initialize the overlay layer, hydrate persisted worms, and start observers.
@@ -75,42 +66,20 @@ export class PageWorms {
         await this.load();
         this._observe();
         await this.renderAll();
-        this._initHostResizeObserver();
     }
     /** Wire resize/scroll/mutation observers with a throttled render loop. */
     _observe() {
-        const reposition = throttle(() => {
+        const scheduleRender = throttle(() => {
             if (this._raf)
                 cancelAnimationFrame(this._raf);
             this._raf = requestAnimationFrame(() => {
                 void this.renderAll();
             });
         }, DEFAULTS.throttleMs);
-        this._reposition = reposition;
-        window.addEventListener("resize", reposition);
-        window.addEventListener("scroll", this._onAnyScroll, {
-            passive: true,
-            capture: true,
+        this.observerAdapter.start({
+            scheduleRender,
+            isManagedNode: (node) => this._isManagedNode(node),
         });
-        this._resizeObs = new ResizeObserver(reposition);
-        this._resizeObs.observe(document.documentElement);
-        this._mutObs = new MutationObserver((entries) => {
-            if (this._isRendering)
-                return;
-            for (const record of entries) {
-                if (this._isManagedNode(record.target) ||
-                    [...record.addedNodes].some((node) => this._isManagedNode(node)) ||
-                    [...record.removedNodes].some((node) => this._isManagedNode(node))) {
-                    continue;
-                }
-                reposition();
-                break;
-            }
-        });
-        const body = document.body;
-        if (body) {
-            this._mutObs.observe(body, { childList: true, subtree: true });
-        }
     }
     /** Returns true when a mutation target belongs to PageWorms-managed UI. */
     _isManagedNode(node) {
@@ -121,36 +90,9 @@ export class PageWorms {
             typeof el.closest === "function" &&
             el.closest(OWNED_SELECTOR));
     }
-    /** Lazily create a ResizeObserver that keeps overlay boxes in sync. */
-    _initHostResizeObserver() {
-        if (this._hostRO)
-            return;
-        this._hostRO = new ResizeObserver((entries) => {
-            for (const e of entries) {
-                const hostEl = e.target;
-                if (!(hostEl instanceof HTMLElement))
-                    continue;
-                const containerEl = hostEl.parentElement;
-                if (!containerEl)
-                    continue;
-                const box = containerEl.querySelector(`:scope > .pp-box[data-for='${hostEl.dataset.ppId}']`);
-                if (!box)
-                    continue;
-                box.style.width = hostEl.offsetWidth + "px";
-                box.style.height = hostEl.offsetHeight + "px";
-                box.style.left = hostEl.offsetLeft + "px";
-                box.style.top = hostEl.offsetTop + "px";
-            }
-        });
-    }
     /** Tear down observers/listeners and remove rendered worm elements. */
     destroy() {
-        if (this._reposition)
-            window.removeEventListener("resize", this._reposition);
-        window.removeEventListener("scroll", this._onAnyScroll, { capture: true });
-        this._resizeObs?.disconnect();
-        this._mutObs?.disconnect();
-        this._hostRO?.disconnect();
+        this.observerAdapter.stop();
         for (const el of this.wormEls.values())
             el.remove();
         this.wormEls.clear();
@@ -170,6 +112,7 @@ export class PageWorms {
         this.worms = [];
         this._hostByWorm.clear();
         this._anchorCache = null;
+        this.observerAdapter.disconnectHostObserver();
         this._ui.reset();
         // Aggressive sweep
         try {
@@ -378,9 +321,7 @@ export class PageWorms {
                 box = createOrUpdateBox(containerEl, host, uuid);
                 parentEl = box;
                 // Make sure host resize observer watches this host (cheap)
-                this._initHostResizeObserver?.();
-                if (this._hostRO)
-                    this._hostRO.observe(host);
+                this.observerAdapter.observeHost(host);
             }
             // (c) If host changed, reparent; else leave it alone
             const prevHost = this._hostByWorm.get(worm.id);
@@ -441,9 +382,8 @@ export class PageWorms {
         this.wormEls.set(worm.id, wormEl);
         this._ui.wireWormElement(wormEl);
         // Observe host for cheap overlay resync
-        this._initHostResizeObserver?.();
-        if (this._hostRO && cannotContain)
-            this._hostRO.observe(host);
+        if (cannotContain)
+            this.observerAdapter.observeHost(host);
     }
 }
 /** Convenience bootstrap for drop-in usage */

@@ -1,3 +1,13 @@
+/**
+ * anchoring-adapter.ts
+ * -----------------------------------------------------------------------------
+ * Provides the concrete DOM anchoring implementation for PageWorms.
+ *
+ * Responsibilities:
+ *   - Build text caches for fast quote matching.
+ *   - Create worm positions from user interactions (selection or click).
+ *   - Resolve persisted worm positions back to DOM elements using multiple fallbacks.
+ */
 // global config
 import { DEFAULTS } from "../constants.js";
 // utility functions
