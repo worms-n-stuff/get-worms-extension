@@ -30,7 +30,6 @@ The manifest now points to scripts inside `dist/`, so the extension must be rebu
 
 ## Notes for contributors
 
-- Several complex modules under `page-worms/` include `// @ts-nocheck` pragmas to keep the migration non-invasive. Feel free to replace them with proper typings as you iterate.
 - Static assets (HTML, CSS, icons) remain alongside the source files; only TypeScript is compiled into `dist/`.
 - The popup HTML now sources its scripts from `dist/popup-logic/*`. If you add new popup modules, remember to update both the TypeScript source and the compiled output via `npm run build`.
 - `chrome.runtime.getURL` lookups expect compiled modules in `dist/`, so avoid moving built files without updating those strings.
