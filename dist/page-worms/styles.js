@@ -1,5 +1,5 @@
 /**
- * styles.js
+ * styles.ts
  * -----------------------------------------------------------------------------
  * Purpose:
  *   Attach the worm UI stylesheet to the document exactly once.
@@ -7,13 +7,13 @@
 const STYLE_ID = "pw-style-link";
 function resolveCssUrl() {
     if (typeof chrome !== "undefined" && chrome?.runtime?.getURL) {
-        return chrome.runtime.getURL("page-worms/page-worms.css");
+        return chrome.runtime.getURL("page-worms/styles.css");
     }
     try {
-        return new URL("./page-worms.css", import.meta.url).toString();
+        return new URL("./styles.css", import.meta.url).toString();
     }
     catch {
-        return "page-worms/page-worms.css";
+        return "page-worms/styles.css";
     }
 }
 /** Inject the overlay styles via <link>, guarding against duplicate inserts. */

@@ -8,7 +8,7 @@ This repository contains the **get worms** Chrome extension. It lets authenticat
 - `page-worms/` – shared UI/anchoring logic rendered inside web pages (built as web-accessible modules).
 - `popup-logic/` – scripts used by the extension popup (`popup.html`).
 - `service-worker/` – background/service worker modules (auth, menu wiring, toggle state).
-- `page-worms/page-worms.css` – styles injected into target pages.
+- `page-worms/styles.css` – styles injected into target pages.
 - `dist/` – build output produced by the TypeScript compiler (mirrors the folder layout above).
 
 ## Getting started
