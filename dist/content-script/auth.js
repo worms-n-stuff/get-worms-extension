@@ -1,10 +1,14 @@
 /**
- * content-script/auth.js – listens for window.postMessage from the login page,
- * verifies origin + type + nonce, and relays the session to the background service worker.
+ * content-script/auth.ts
+ * -----------------------------------------------------------------------------
+ * Bridges the login flow: listens for Supabase session messages from the login
+ * page, validates origin + nonce, and delegates persistence to the background
+ * service worker.
  */
-(() => {
+(function initAuthRelay() {
     let authShared = null;
     let trustedOrigins = new Set();
+    // Load shared auth constants via a web-accessible module URL.
     const authSharedReady = import(chrome.runtime.getURL("dist/shared/auth.js")).then((mod) => {
         authShared = mod;
         trustedOrigins = new Set(mod.TRUSTED_LOGIN_ORIGINS);
@@ -12,7 +16,7 @@
     });
     let pendingState = null;
     let completed = false;
-    // Ask background for the state we generated in AUTH_MESSAGES.BEGIN_LOGIN
+    // Fetch the current handshake state from the background worker.
     async function fetchPendingState() {
         await authSharedReady;
         if (!authShared)

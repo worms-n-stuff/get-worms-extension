@@ -1,3 +1,9 @@
+/**
+ * service-worker/auth.ts
+ * -----------------------------------------------------------------------------
+ * Handles extension-side authentication: tracks login handshakes, persists the
+ * Supabase session, and answers popup/content-script status queries.
+ */
 import {
   AUTH_MESSAGES,
   HANDSHAKE_STORAGE_KEY,
@@ -7,20 +13,20 @@ import {
   SESSION_STORAGE_KEY,
 } from "../shared/auth.js";
 
-// --- Utilities ---
-function base64url(bytes) {
-  // Convert Uint8Array -> base64url (RFC 4648 §5)
+/** Convert a byte buffer into a base64url string (RFC 4648 §5). */
+function base64url(bytes: Uint8Array) {
   let s = btoa(String.fromCharCode(...bytes));
   return s.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
+/** Generate a cryptographically random state token for login handshakes. */
 function generateState(length = 32) {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return base64url(bytes);
 }
 
-async function setHandshake(handshake) {
+async function setHandshake(handshake: { pendingState: string; createdAt: number }) {
   await chrome.storage.local.set({ [HANDSHAKE_STORAGE_KEY]: handshake });
 }
 
@@ -33,7 +39,7 @@ async function clearHandshake() {
   await chrome.storage.local.remove(HANDSHAKE_STORAGE_KEY);
 }
 
-async function setSession(session) {
+async function setSession(session: { access_token: string; refresh_token: string; expires_at: number }) {
   await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: session });
 }
 
@@ -50,6 +56,7 @@ async function openLoginTab(state) {
 }
 
 /** Register message handlers for auth-related runtime events. */
+/** Register the runtime.onMessage handler that powers the auth flow. */
 export function registerAuthHandlers(): void {
   chrome.runtime.onMessage.addListener(authMessageListener);
 }
@@ -123,9 +130,11 @@ function authMessageListener(
           sendResponse({ ok: true });
           return;
         }
-        default:
+        default: {
+          // Let other listeners respond; this surface only handles auth messages.
           sendResponse({ ok: false, error: "Unknown message type" });
           return;
+        }
       }
     } catch (err) {
       console.error("Background error:", err);

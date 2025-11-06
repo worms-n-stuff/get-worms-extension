@@ -1,3 +1,9 @@
+/**
+ * service-worker/worm-module.ts
+ * -----------------------------------------------------------------------------
+ * Owns the worms toggle: keeps the action badge updated, exposes the “Add Worm”
+ * context menu entry, and forwards click requests to the active tab.
+ */
 import {
   ensureWormsToggle,
   readWormsToggle,
@@ -14,6 +20,7 @@ const MENU_CONTEXTS = [
   chrome.contextMenus.ContextType.AUDIO,
 ] as const;
 
+/** Reflect the current toggle value on the extension action badge. */
 async function updateActionUI(): Promise<void> {
   const enabled = await readWormsToggle();
   const text = enabled ? "ON" : "OFF";
@@ -23,6 +30,7 @@ async function updateActionUI(): Promise<void> {
   });
 }
 
+/** Ensure the context menu item exists (safe to call repeatedly). */
 function createContextMenu(): void {
   try {
     chrome.contextMenus.create({
@@ -45,6 +53,7 @@ function handleStorageChange(
   }
 }
 
+/** Fire-and-forget handler that asks the tab to add a worm. */
 async function handleContextMenuClick(
   info: chrome.contextMenus.OnClickData,
   tab: chrome.tabs.Tab | undefined
@@ -58,6 +67,7 @@ async function handleContextMenuClick(
   }
 }
 
+/** Wire up storage/tab listeners and bootstrap the ON/OFF toggle. */
 export function registerWormModuleHandlers(): void {
   chrome.runtime.onInstalled.addListener(async () => {
     await ensureWormsToggle();

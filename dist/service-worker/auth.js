@@ -1,10 +1,16 @@
+/**
+ * service-worker/auth.ts
+ * -----------------------------------------------------------------------------
+ * Handles extension-side authentication: tracks login handshakes, persists the
+ * Supabase session, and answers popup/content-script status queries.
+ */
 import { AUTH_MESSAGES, HANDSHAKE_STORAGE_KEY, HANDSHAKE_TTL_MS, LOGIN_ORIGIN, LOGIN_PATH, SESSION_STORAGE_KEY, } from "../shared/auth.js";
-// --- Utilities ---
+/** Convert a byte buffer into a base64url string (RFC 4648 §5). */
 function base64url(bytes) {
-    // Convert Uint8Array -> base64url (RFC 4648 §5)
     let s = btoa(String.fromCharCode(...bytes));
     return s.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
+/** Generate a cryptographically random state token for login handshakes. */
 function generateState(length = 32) {
     const bytes = new Uint8Array(length);
     crypto.getRandomValues(bytes);
@@ -34,6 +40,7 @@ async function openLoginTab(state) {
     await chrome.tabs.create({ url: url.toString(), active: true });
 }
 /** Register message handlers for auth-related runtime events. */
+/** Register the runtime.onMessage handler that powers the auth flow. */
 export function registerAuthHandlers() {
     chrome.runtime.onMessage.addListener(authMessageListener);
 }
@@ -85,9 +92,11 @@ function authMessageListener(msg, _sender, sendResponse) {
                     sendResponse({ ok: true });
                     return;
                 }
-                default:
+                default: {
+                    // Let other listeners respond; this surface only handles auth messages.
                     sendResponse({ ok: false, error: "Unknown message type" });
                     return;
+                }
             }
         }
         catch (err) {

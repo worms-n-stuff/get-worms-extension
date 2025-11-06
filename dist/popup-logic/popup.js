@@ -15,6 +15,7 @@ function setStatus(text) {
     if (statusEl)
         statusEl.textContent = text;
 }
+/** Lazily bind the ON/OFF toggle and hydrate its initial state. */
 async function ensureToggleInitialized() {
     if (!toggleEl || toggleInitialized)
         return;
@@ -31,10 +32,11 @@ async function ensureToggleInitialized() {
             await writeWormsToggle(toggleEl.checked);
         }
         catch {
-            // noop – UI state remains optimistic
+            // Keep the optimistic UI state; background listeners will correct it if needed.
         }
     });
 }
+/** Ask the background worker for the login status and update the view. */
 async function refreshStatus() {
     try {
         const resp = await chrome.runtime.sendMessage({

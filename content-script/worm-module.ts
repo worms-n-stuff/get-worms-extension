@@ -1,11 +1,12 @@
 /**
- * content-script/worm-module.js
- * Responsibilties:
- * 1. Handles on/off and initialization of the worms module
- * 2. Handles add new worm action (from context menu)
+ * content-script/worm-module.ts
+ * -----------------------------------------------------------------------------
+ * Injected into every page. Starts/stops PageWorms based on the toggle stored
+ * in chrome.storage, tracks SPA navigations, and responds to "Add Worm" events
+ * emitted by the background context menu handler.
  */
 
-(() => {
+(function registerPageWormsContentScript() {
   type AttachPageWorms =
     typeof import("../page-worms/page-worms.js").attachPageWorms;
   type PageWormsInstance = Awaited<ReturnType<AttachPageWorms>>;
@@ -23,6 +24,7 @@
   let readWormsToggle: ToggleModule["readWormsToggle"];
   let PW_TOGGLE_KEY: ToggleModule["PW_TOGGLE_KEY"] = "pw_enabled";
 
+  // Load shared toggle helpers via web-accessible runtime URL.
   const togglesReady = import(
     chrome.runtime.getURL("dist/shared/toggles.js")
   ).then((mod) => {
@@ -36,8 +38,8 @@
 
   // --- LIFECYCLE GUARDS -------------------------------------------------------
 
+  /** Returns false once the extension tears down this execution context. */
   function isContextAlive() {
-    // When a content-script context is invalidated, runtime.id becomes undefined.
     return alive && !!(chrome?.runtime && chrome.runtime.id);
   }
 
@@ -97,6 +99,7 @@
 
   // --- SAFE STORAGE ACCESS ----------------------------------------------------
 
+  /** Read the worms toggle, tolerating invalidated contexts. */
   async function getToggleSafe() {
     if (!isContextAlive()) return false;
     try {
@@ -113,6 +116,7 @@
 
   // --- MAIN STATE MACHINE -----------------------------------------------------
 
+  /** Lazily create the shared PageWorms singleton. */
   async function ensureInstanceReady() {
     if (!isContextAlive()) return null;
     await wormsReady;
@@ -126,6 +130,7 @@
     return instance;
   }
 
+  /** Apply the latest toggle state (load or clear PageWorms UI). */
   async function ensureState() {
     const inst = await ensureInstanceReady();
     if (!inst) return;
@@ -163,6 +168,7 @@
     }
   });
 
+  /** Spawn a worm using the last context menu coordinates + optional selection. */
   async function addWormFromContext() {
     const inst = await ensureInstanceReady();
     if (!inst) return;

@@ -10,6 +10,7 @@ This repository contains the **get worms** Chrome extension. It lets authenticat
 - `service-worker/` – background/service worker modules (auth, menu wiring, toggle state).
 - `page-worms/styles.css` – styles injected into target pages.
 - `dist/` – build output produced by the TypeScript compiler (mirrors the folder layout above).
+- `shared/` – cross-context helpers (auth message constants, toggle utilities).
 
 ## Getting started
 

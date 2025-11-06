@@ -19,6 +19,7 @@ function setStatus(text: string): void {
   if (statusEl) statusEl.textContent = text;
 }
 
+/** Lazily bind the ON/OFF toggle and hydrate its initial state. */
 async function ensureToggleInitialized(): Promise<void> {
   if (!toggleEl || toggleInitialized) return;
   toggleInitialized = true;
@@ -32,11 +33,12 @@ async function ensureToggleInitialized(): Promise<void> {
     try {
       await writeWormsToggle(toggleEl.checked);
     } catch {
-      // noop – UI state remains optimistic
+      // Keep the optimistic UI state; background listeners will correct it if needed.
     }
   });
 }
 
+/** Ask the background worker for the login status and update the view. */
 async function refreshStatus(): Promise<void> {
   try {
     const resp = await chrome.runtime.sendMessage({
