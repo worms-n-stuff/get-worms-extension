@@ -1,19 +1,14 @@
 /**
- * layer.js
+ * dom-layer.ts
  * -----------------------------------------------------------------------------
- * Purpose:
- *   DOM primitives for worm elements and host-aligned overlay boxes.
- *
- * Responsibilities:
- *   - createWormEl(): Construct a basic worm button (unstyled logic-wise).
- *   - makePositioningContext(el): Ensure "position: relative" on containers.
- *   - createOrUpdateBox(container, host, idGen): Align a box to host bounds.
- *
- * Notes:
- *   - Boxes allow worm placement for non-container hosts (IMG/IFRAME/etc.).
+ * Rendering primitives for worm elements and host-aligned overlay boxes.
  */
 
-import { DEFAULTS } from "./constants.js";
+import {
+  DEFAULTS,
+  PW_OWNED_DATASET_KEY,
+  PW_OWNED_DATASET_VALUE,
+} from "../constants.js";
 
 /** Build the base worm button element with class + aria labelling. */
 export function createWormEl(): HTMLButtonElement {
@@ -21,7 +16,7 @@ export function createWormEl(): HTMLButtonElement {
   el.type = "button";
   el.className = DEFAULTS.wormClass;
   el.setAttribute("aria-label", "Page Worm");
-  el.dataset.pwOwned = "1";
+  el.dataset[PW_OWNED_DATASET_KEY] = PW_OWNED_DATASET_VALUE;
   return el;
 }
 
@@ -54,7 +49,7 @@ export function createOrUpdateBox(
     box.dataset.for = id;
     containerEl.appendChild(box);
   }
-  box.dataset.pwOwned = "1";
+  box.dataset[PW_OWNED_DATASET_KEY] = PW_OWNED_DATASET_VALUE;
   const left = hostEl.offsetLeft,
     top = hostEl.offsetTop,
     w = hostEl.offsetWidth,

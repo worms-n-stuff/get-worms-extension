@@ -41,14 +41,13 @@ import {
   createRenderingAdapter,
   type RenderingAdapter,
 } from "./rendering/index.js";
+import { createUIAdapter, type UIAdapter } from "./ui/index.js";
 
-import { DEFAULTS } from "./constants.js";
+import { DEFAULTS, PW_OWNED_SELECTOR } from "./constants.js";
 import { throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
-import { WormUI } from "./ui/ui-manager/ui.js";
 import type { WormRecord, WormFormData } from "./types.js";
 
-const OWNED_SELECTOR = "[data-pw-owned]"; // Internal UI nodes flagged to skip mutation feedback
 
 type AddWormOptions = {
   target: Node | null; //  Element that received the context click (or selection ancestor)
@@ -67,7 +66,7 @@ export class PageWorms {
   private url: string;
   private worms: WormRecord[];
   private _idCounter: number;
-  private _ui: WormUI;
+  private _ui: UIAdapter;
   // ---------------------------------------------------------------------------
   // #region Lifecycle
   // ---------------------------------------------------------------------------
@@ -76,7 +75,7 @@ export class PageWorms {
     this.url = getCanonicalUrl();
     this.worms = [];
     this._idCounter = 0;
-    this._ui = new WormUI({
+    this._ui = createUIAdapter({
       getWormById: (id) => this._findWormById(id),
       onEdit: async (id, data) => {
         await this._handleEditFromUI(id, data);
@@ -144,7 +143,7 @@ export class PageWorms {
     return !!(
       el &&
       typeof el.closest === "function" &&
-      el.closest(OWNED_SELECTOR)
+      el.closest(PW_OWNED_SELECTOR)
     );
   }
 

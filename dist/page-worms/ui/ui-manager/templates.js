@@ -3,8 +3,10 @@
  * -----------------------------------------------------------------------------
  * Centralised HTML templates for tooltip and modal UI pieces.
  */
+import { PW_OWNED_ATTR } from "../../constants.js";
+const OWNED_ATTR_FRAGMENT = `${PW_OWNED_ATTR}=""`;
 const tooltipMarkup = `
-<div class="pw-tooltip" role="tooltip" hidden data-worm-id="" data-pw-owned="">
+<div class="pw-tooltip" role="tooltip" hidden data-worm-id="" ${OWNED_ATTR_FRAGMENT}>
   <div class="pw-tooltip__content pw-tooltip__content--empty">No comment yet.</div>
   <div class="pw-tooltip__tags" hidden></div>
   <div class="pw-tooltip__actions">
@@ -13,12 +15,12 @@ const tooltipMarkup = `
 </div>
 `;
 const backdropMarkup = `
-<div class="pw-modal-backdrop" aria-hidden="true" hidden data-pw-owned="">
+<div class="pw-modal-backdrop" aria-hidden="true" hidden ${OWNED_ATTR_FRAGMENT}>
   <div class="pw-modal-window" role="dialog" aria-modal="true" data-mode="" data-worm-id=""></div>
 </div>
 `;
 const modalViewMarkup = `
-<div class="pw-modal" data-pw-owned="">
+<div class="pw-modal" ${OWNED_ATTR_FRAGMENT}>
   <header class="pw-modal__header">
     <h2 class="pw-modal__title">Worm Details</h2>
     <button type="button" class="pw-btn pw-btn--icon pw-modal__close" data-pw-action="close" aria-label="Close worm details">X</button>
@@ -46,7 +48,7 @@ const modalViewMarkup = `
 </div>
 `;
 const modalFormMarkup = `
-<form class="pw-modal pw-modal--form" data-pw-owned="">
+<form class="pw-modal pw-modal--form" ${OWNED_ATTR_FRAGMENT}>
   <header class="pw-modal__header">
     <h2 class="pw-modal__title">Edit Worm</h2>
     <button type="button" class="pw-btn pw-btn--icon pw-modal__close" data-pw-action="cancel" aria-label="Cancel worm edit">X</button>

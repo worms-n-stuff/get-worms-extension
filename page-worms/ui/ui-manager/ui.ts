@@ -12,6 +12,10 @@ import {
   createModalForm,
 } from "./templates.js";
 import type { WormRecord, WormFormData, WormStatus } from "../../types.js";
+import {
+  PW_OWNED_DATASET_KEY,
+  PW_OWNED_DATASET_VALUE,
+} from "../../constants.js";
 
 type WormUIState =
   | { mode: "view"; wormId: number }
@@ -80,7 +84,7 @@ export class WormUI {
   wireWormElement(el: HTMLElement | null): void {
     // Idempotently attach the UI listeners to a worm wrapper element.
     if (!el || el.dataset.pwWired === "1") return;
-    el.dataset.pwOwned = "1";
+    el.dataset[PW_OWNED_DATASET_KEY] = PW_OWNED_DATASET_VALUE;
     el.dataset.pwWired = "1";
     el.addEventListener("mouseenter", this._handleEnter);
     el.addEventListener("mouseleave", this._handleLeave);
@@ -300,7 +304,7 @@ export class WormUI {
   private _ensureTooltip(): void {
     if (this._tooltipEl) return;
     const tooltip = createTooltip();
-    tooltip.dataset.pwOwned = "1";
+    tooltip.dataset[PW_OWNED_DATASET_KEY] = PW_OWNED_DATASET_VALUE;
     tooltip.addEventListener("mouseenter", () => this._cancelTooltipHide());
     tooltip.addEventListener("mouseleave", () => this.hideTooltip());
     const expandBtn = tooltip.querySelector<HTMLButtonElement>(".pw-tooltip__expand");
@@ -401,8 +405,9 @@ export class WormUI {
   private _ensureBackdrop(): void {
     if (this._backdropEl && this._windowEl) return;
     const { backdrop, windowEl } = createBackdrop();
-    backdrop.dataset.pwOwned = "1";
-    if (windowEl) windowEl.dataset.pwOwned = "1";
+    backdrop.dataset[PW_OWNED_DATASET_KEY] = PW_OWNED_DATASET_VALUE;
+    if (windowEl)
+      windowEl.dataset[PW_OWNED_DATASET_KEY] = PW_OWNED_DATASET_VALUE;
     backdrop.addEventListener("click", this._handleBackdropClick);
     windowEl.addEventListener("click", this._handleModalClick);
     windowEl.addEventListener("submit", this._handleModalSubmit);

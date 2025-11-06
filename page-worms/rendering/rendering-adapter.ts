@@ -10,7 +10,7 @@
  */
 
 import { DEFAULTS } from "../constants.js";
-import { createOrUpdateBox, createWormEl, makePositioningContext } from "../layer.js";
+import { createOrUpdateBox, createWormEl, makePositioningContext } from "./dom-layer.js";
 import { injectStyles } from "../styles.js";
 import type { WormRecord } from "../types.js";
 import { uuid } from "../utils.js";
@@ -64,25 +64,7 @@ class DomRenderingAdapter implements RenderingAdapter {
       }
 
       for (const worm of worms) {
-        const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this.anchorCache);
-        const fallbackHost = document.body ?? document.documentElement;
-        const host = (hostEl ?? fallbackHost) as HTMLElement;
-
-        const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
-        // When the host cannot contain children, we fall back to an overlay box.
-        const containerEl = cannotContain
-          ? host.parentElement instanceof HTMLElement
-            ? host.parentElement
-            : (document.body ?? host)
-          : host;
-
-        makePositioningContext(containerEl);
-
-        // Relative percentages determine left/top positioning for the worm.
-        const xPct = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
-        const yPct = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
-
-        plan.push({ worm, host, containerEl, cannotContain, xPct, yPct });
+        plan.push(this.resolveRenderContext(worm));
       }
 
       this.cancelFrame();
@@ -100,18 +82,7 @@ class DomRenderingAdapter implements RenderingAdapter {
       this.anchorCache = this.anchoringAdapter.buildTextCache();
     }
 
-    const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this.anchorCache);
-    const fallbackHost = document.body ?? document.documentElement;
-    const host = (hostEl ?? fallbackHost) as HTMLElement;
-
-    const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
-    const containerEl = cannotContain
-      ? host.parentElement instanceof HTMLElement
-        ? host.parentElement
-        : (document.body ?? host)
-      : host;
-
-    makePositioningContext(containerEl);
+    const { host, containerEl, cannotContain, xPct, yPct } = this.resolveRenderContext(worm);
 
     // Overlay boxes mirror non-container host bounds.
     const targetContainer = cannotContain
@@ -125,12 +96,10 @@ class DomRenderingAdapter implements RenderingAdapter {
       this.wormEls.set(worm.id, wormEl);
     }
 
-    const x = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
-    const y = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
-    wormEl.style.left = x + "%";
-    wormEl.style.top = y + "%";
-    wormEl.dataset.l = String(x);
-    wormEl.dataset.t = String(y);
+    wormEl.style.left = xPct + "%";
+    wormEl.style.top = yPct + "%";
+    wormEl.dataset.l = String(xPct);
+    wormEl.dataset.t = String(yPct);
 
     if (wormEl.parentElement !== targetContainer) {
       targetContainer.appendChild(wormEl);
@@ -229,6 +198,26 @@ class DomRenderingAdapter implements RenderingAdapter {
     }
 
     this.raf = null;
+  }
+
+  private resolveRenderContext(worm: WormRecord): RenderPlanItem {
+    const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this.anchorCache);
+    const fallbackHost = document.body ?? document.documentElement;
+    const host = (hostEl ?? fallbackHost) as HTMLElement;
+
+    const cannotContain = /^(IMG|VIDEO|CANVAS|SVG|IFRAME)$/i.test(host.tagName);
+    const containerEl = (cannotContain
+      ? host.parentElement instanceof HTMLElement
+        ? host.parentElement
+        : (document.body ?? host)
+      : host) as HTMLElement;
+
+    makePositioningContext(containerEl);
+
+    const xPct = (worm.position?.element?.relBoxPct?.x ?? 0.5) * 100;
+    const yPct = (worm.position?.element?.relBoxPct?.y ?? 0.5) * 100;
+
+    return { worm, host, containerEl, cannotContain, xPct, yPct };
   }
 
   private upsertLocalWorm(worm: WormRecord): void {
