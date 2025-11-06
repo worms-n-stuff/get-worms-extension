@@ -1,5 +1,5 @@
 /**
- * utils.js
+ * utils.ts
  * -----------------------------------------------------------------------------
  * Purpose:
  *   Small, generic utilities with zero DOM coupling.

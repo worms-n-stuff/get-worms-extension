@@ -13,6 +13,7 @@
  *   - _observe(): Resize/scroll/mutation listeners with throttled rerender.
  *   - clearScreen(): Remove rendered worms and tear down DOM overlays.
  *   - destroy(): Cleanup listeners/observers and DOM artifacts.
+ *   - UI adapter: Surface modals/tooltips and relay user edits/deletions.
  *
  * Important Behavior:
  *   - Worms fade out while scrolling, reappear after ~140ms idle.
@@ -48,7 +49,6 @@ import { throttle, getCanonicalUrl } from "./utils.js";
 import { injectStyles } from "./styles.js";
 import type { WormRecord, WormFormData } from "./types.js";
 
-
 type AddWormOptions = {
   target: Node | null; //  Element that received the context click (or selection ancestor)
   clickX: number; // clientX for the position relBoxPct
@@ -62,11 +62,11 @@ export class PageWorms {
   private anchoringAdapter: AnchoringAdapter;
   private observerAdapter: ObserverAdapter;
   private renderingAdapter: RenderingAdapter;
+  private uiAdapter: UIAdapter;
 
   private url: string;
   private worms: WormRecord[];
   private _idCounter: number;
-  private _ui: UIAdapter;
   // ---------------------------------------------------------------------------
   // #region Lifecycle
   // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ export class PageWorms {
     this.url = getCanonicalUrl();
     this.worms = [];
     this._idCounter = 0;
-    this._ui = createUIAdapter({
+    this.uiAdapter = createUIAdapter({
       getWormById: (id) => this._findWormById(id),
       onEdit: async (id, data) => {
         await this._handleEditFromUI(id, data);
@@ -90,7 +90,7 @@ export class PageWorms {
     this.renderingAdapter = createRenderingAdapter({
       anchoringAdapter: this.anchoringAdapter,
       observerAdapter: this.observerAdapter,
-      wireWormElement: (el) => this._ui.wireWormElement(el),
+      wireWormElement: (el) => this.uiAdapter.wireWormElement(el),
     });
   }
 
@@ -107,14 +107,14 @@ export class PageWorms {
   destroy(): void {
     this.observerAdapter.stop();
     this.renderingAdapter.clear();
-    this._ui.destroy();
+    this.uiAdapter.destroy();
   }
 
   /** Remove all tracked worms and aggressively clear overlay artifacts. */
   clearScreen(): void {
     this.renderingAdapter.clear();
     this.worms = [];
-    this._ui.reset();
+    this.uiAdapter.reset();
   }
 
   async renderAll(): Promise<void> {
@@ -194,7 +194,7 @@ export class PageWorms {
       clickY,
       selection,
     });
-    const formResult = await this._ui.promptCreate({
+    const formResult = await this.uiAdapter.promptCreate({
       content: "",
       tags: [],
       status: "private",
@@ -218,7 +218,7 @@ export class PageWorms {
     await this._persist();
     this.renderingAdapter.drawWorm(worm);
     await this.renderingAdapter.renderAll(this.worms);
-    await this._ui.openViewer(worm.id);
+    await this.uiAdapter.openViewer(worm.id);
     return worm;
   }
 

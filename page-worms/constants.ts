@@ -1,8 +1,8 @@
 /**
- * constants.js
+ * constants.ts
  * -----------------------------------------------------------------------------
  * Purpose:
- *   Config and constants for PageWorms.
+ *   Shared configuration values and DOM metadata for PageWorms.
  */
 
 export const DEFAULTS = {

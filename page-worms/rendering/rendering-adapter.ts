@@ -200,6 +200,7 @@ class DomRenderingAdapter implements RenderingAdapter {
     this.raf = null;
   }
 
+  /** Build the shared geometry context for a worm, used by batch and single renders. */
   private resolveRenderContext(worm: WormRecord): RenderPlanItem {
     const hostEl = this.anchoringAdapter.resolvePosition(worm.position, this.anchorCache);
     const fallbackHost = document.body ?? document.documentElement;

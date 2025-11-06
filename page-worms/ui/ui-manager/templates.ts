@@ -1,5 +1,5 @@
 /**
- * templates.js
+ * templates.ts
  * -----------------------------------------------------------------------------
  * Centralised HTML templates for tooltip and modal UI pieces.
  */
