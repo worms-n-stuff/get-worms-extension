@@ -66,7 +66,6 @@ export class PageWorms {
 
   private url: string;
   private worms: WormRecord[];
-  private _idCounter: number;
   // ---------------------------------------------------------------------------
   // #region Lifecycle
   // ---------------------------------------------------------------------------
@@ -74,7 +73,6 @@ export class PageWorms {
     injectStyles();
     this.url = getCanonicalUrl();
     this.worms = [];
-    this._idCounter = 0;
     this.uiAdapter = createUIAdapter({
       getWormById: (id) => this._findWormById(id),
       onEdit: async (id, data) => {
@@ -154,20 +152,12 @@ export class PageWorms {
   // ---------------------------------------------------------------------------
   /** Load worms for the current canonical URL via the configured storage adapter. */
   async load(): Promise<void> {
-    this.worms = await this.storageAdapter.get(this.url);
-    this._idCounter = this.worms.reduce((max, worm) => {
-      const id = Number(worm?.id);
-      return Number.isFinite(id) && id > max ? id : max;
-    }, 0);
-  }
-  /** Persist the in-memory worm list for the current page. */
-  private async _persist(): Promise<void> {
-    await this.storageAdapter.set(this.url, this.worms);
-  }
-
-  private _generateId(): number {
-    this._idCounter += 1;
-    return this._idCounter;
+    try {
+      this.worms = await this.storageAdapter.list(this.url);
+    } catch (err) {
+      this._handleStorageError("load worms", err);
+      this.worms = [];
+    }
   }
 
   private _findWormById(id: number): WormRecord | null {
@@ -202,25 +192,25 @@ export class PageWorms {
     });
     if (!formResult) return null;
 
-    const now = new Date().toISOString();
-    const worm: WormRecord = {
-      id: this._generateId(),
-      created_at: now,
-      updated_at: null,
-      content: formResult.content ?? "",
-      status: formResult.status,
-      tags: formResult.tags.length ? formResult.tags : null,
-      author_id: null,
-      position,
-      host_url: this.url,
-    };
-    this.worms.push(worm);
-    this._logWormEvent("create", worm, { via: "contextmenu" });
-    await this._persist();
-    this.renderingAdapter.drawWorm(worm);
+    let created: WormRecord;
+    try {
+      created = await this.storageAdapter.create(this.url, {
+        content: formResult.content ?? "",
+        tags: formResult.tags,
+        status: formResult.status,
+        position,
+        host_url: this.url,
+      });
+    } catch (err) {
+      this._handleStorageError("create worm", err);
+      return null;
+    }
+    this.worms.push(created);
+    this._logWormEvent("create", created, { via: "contextmenu" });
+    this.renderingAdapter.drawWorm(created);
     await this.renderAll();
-    await this.uiAdapter.openViewer(worm.id);
-    return worm;
+    await this.uiAdapter.openViewer(created.id);
+    return created;
   }
 
   private async _handleEditFromUI(
@@ -230,25 +220,32 @@ export class PageWorms {
     const worm = this._findWormById(wormId);
     if (!worm) return null;
 
-    worm.content = payload.content ?? "";
-    worm.tags = payload.tags.length ? payload.tags : null;
-    worm.status = payload.status;
-    worm.updated_at = new Date().toISOString();
-
-    await this._persist();
-    this._logWormEvent("update", worm, { via: "ui" });
+    let updated: WormRecord;
+    try {
+      updated = await this.storageAdapter.update(this.url, wormId, payload);
+    } catch (err) {
+      this._handleStorageError("update worm", err);
+      return null;
+    }
+    this.worms = this.worms.map((w) => (w.id === wormId ? updated : w));
+    this._logWormEvent("update", updated, { via: "ui" });
     await this.renderAll();
-    return worm;
+    return updated;
   }
 
   private async _handleDeleteFromUI(wormId: number): Promise<void> {
     const worm = this._findWormById(wormId);
     if (!worm) return;
 
+    try {
+      await this.storageAdapter.remove(this.url, wormId);
+    } catch (err) {
+      this._handleStorageError("delete worm", err);
+      return;
+    }
     this.worms = this.worms.filter((w) => w.id !== wormId);
     this.renderingAdapter.removeWorm(wormId);
 
-    await this._persist();
     this._logWormEvent("delete", worm, { via: "ui" });
     await this.renderAll();
   }
@@ -257,6 +254,14 @@ export class PageWorms {
   // ---------------------------------------------------------------------------
   // #region Instrumentation
   // ---------------------------------------------------------------------------
+  private _handleStorageError(action: string, err: unknown): void {
+    try {
+      console.error(`[PageWorms] Failed to ${action}`, err);
+    } catch {
+      // no-op
+    }
+  }
+
   /** Console instrumentation helper for creation/render lifecycle events. */
   private _logWormEvent(
     action: string,

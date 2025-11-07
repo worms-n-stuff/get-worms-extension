@@ -124,7 +124,7 @@
     if (!isContextAlive()) return null;
 
     if (!instance && attachPageWormsFn) {
-      const created = await attachPageWormsFn();
+      const created = await attachPageWormsFn("remote");
       if (!isContextAlive()) return null;
       instance = created;
     }

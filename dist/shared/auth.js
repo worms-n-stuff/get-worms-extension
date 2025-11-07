@@ -1,22 +1,28 @@
-/**
- * shared/auth.ts
- * -----------------------------------------------------------------------------
- * Constants shared across the auth messaging flow (popup, content script, SW).
- */
-export const AUTH_MESSAGES = {
-    GET_LOGIN_STATUS: "GW_GET_LOGIN_STATUS",
-    BEGIN_LOGIN: "GW_BEGIN_LOGIN",
-    GET_PENDING_STATE: "GW_GET_PENDING_STATE",
-    COMPLETE_LOGIN: "GW_COMPLETE_LOGIN",
-    LOGIN_SUCCESS: "GW_LOGIN_SUCCESS",
+// shared/auth.ts
+var AUTH_MESSAGES = {
+  GET_LOGIN_STATUS: "GW_GET_LOGIN_STATUS",
+  BEGIN_LOGIN: "GW_BEGIN_LOGIN",
+  GET_PENDING_STATE: "GW_GET_PENDING_STATE",
+  COMPLETE_LOGIN: "GW_COMPLETE_LOGIN",
+  LOGIN_SUCCESS: "GW_LOGIN_SUCCESS"
 };
-export const TRUSTED_LOGIN_ORIGINS = [
-    "https://get-worms.com",
-    "http://localhost:5173",
+var TRUSTED_LOGIN_ORIGINS = [
+  "https://get-worms.com",
+  "http://localhost:5173"
 ];
-export const SUPABASE_SESSION_MESSAGE_TYPE = "worms:supabaseSession";
-export const HANDSHAKE_STORAGE_KEY = "gw_login_handshake";
-export const SESSION_STORAGE_KEY = "gw_supabase_session";
-export const HANDSHAKE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-export const LOGIN_ORIGIN = TRUSTED_LOGIN_ORIGINS[0];
-export const LOGIN_PATH = "";
+var SUPABASE_SESSION_MESSAGE_TYPE = "worms:supabaseSession";
+var HANDSHAKE_STORAGE_KEY = "gw_login_handshake";
+var SESSION_STORAGE_KEY = "gw_supabase_session";
+var HANDSHAKE_TTL_MS = 5 * 60 * 1e3;
+var LOGIN_ORIGIN = TRUSTED_LOGIN_ORIGINS[0];
+var LOGIN_PATH = "";
+export {
+  AUTH_MESSAGES,
+  HANDSHAKE_STORAGE_KEY,
+  HANDSHAKE_TTL_MS,
+  LOGIN_ORIGIN,
+  LOGIN_PATH,
+  SESSION_STORAGE_KEY,
+  SUPABASE_SESSION_MESSAGE_TYPE,
+  TRUSTED_LOGIN_ORIGINS
+};

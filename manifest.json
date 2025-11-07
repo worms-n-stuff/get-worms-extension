@@ -14,7 +14,10 @@
     "128": "icons/worm-128.png"
   },
   "permissions": ["storage", "tabs", "activeTab", "scripting", "contextMenus"],
-  "host_permissions": ["https://get-worms.com/*"],
+  "host_permissions": [
+    "https://get-worms.com/*",
+    "https://esigjbspljluwdtuvocg.supabase.co/*"
+  ],
   "background": {
     "service_worker": "dist/service-worker/background.js",
     "type": "module"

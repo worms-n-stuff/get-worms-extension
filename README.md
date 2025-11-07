@@ -3,6 +3,7 @@
 This repository contains the **get worms** Chrome extension. It lets authenticated users create and view "worms" (inline comments) on any web page. There are two parts to this extension: 
 1. the page worms module (the ui/anchoring logic), which resides in page-worms, 
 2. and the auth flow, which has relevant codes in content-script, popup-logic, service-worker, and shared. 
+
 All other code are connections which connect the two parts and them to the extension. A important file for connection is manifest.json, which importantly registers what scripts/ui the google extension should use and in what context.
 
 ## Project structure

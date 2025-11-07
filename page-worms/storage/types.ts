@@ -1,9 +1,17 @@
-import type { WormRecord } from "../types.js";
+import type { WormFormData, WormPosition, WormRecord } from "../types.js";
 
 export interface StorageAdapter {
-  get(url: string): Promise<WormRecord[]>;
-  set(url: string, worms: WormRecord[]): Promise<void>;
+  list(url: string): Promise<WormRecord[]>;
+  create(url: string, payload: WormDraft): Promise<WormRecord>;
+  update(url: string, wormId: number, updates: WormFormData): Promise<WormRecord>;
+  remove(url: string, wormId: number): Promise<void>;
 }
+
+export type WormDraft = WormFormData & {
+  position: WormPosition;
+  host_url: string;
+  author_id?: number | null;
+};
 
 // types of storage adapters. 
 // Local is browser localStorage, 
