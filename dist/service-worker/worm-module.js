@@ -1,10 +1,10 @@
 /**
  * service-worker/worm-module.ts
  * -----------------------------------------------------------------------------
- * Owns the worms toggle: keeps the action badge updated, exposes the “Add Worm”
+ * Owns the worms display mode: keeps the action badge updated, exposes the “Add Worm”
  * context menu entry, and forwards click requests to the active tab.
  */
-import { ensureWormsToggle, readWormsToggle, PW_TOGGLE_KEY, } from "../shared/toggles.js";
+import { ensureDisplayMode, readDisplayMode, DISPLAY_MODE_KEY, } from "../shared/toggles.js";
 const MENU_ID_ADD_WORM = "worms:add";
 const MENU_CONTEXTS = [
     chrome.contextMenus.ContextType.PAGE,
@@ -14,14 +14,18 @@ const MENU_CONTEXTS = [
     chrome.contextMenus.ContextType.VIDEO,
     chrome.contextMenus.ContextType.AUDIO,
 ];
-/** Reflect the current toggle value on the extension action badge. */
+const MODE_BADGES = {
+    off: { text: "OFF", color: "#6c757d" },
+    private: { text: "MINE", color: "#28a745" },
+    friends: { text: "FRND", color: "#17a2b8" },
+    public: { text: "PUB", color: "#f0ad4e" },
+};
+/** Reflect the current display mode on the extension action badge. */
 async function updateActionUI() {
-    const enabled = await readWormsToggle();
-    const text = enabled ? "ON" : "OFF";
-    chrome.action.setBadgeText({ text });
-    chrome.action.setBadgeBackgroundColor({
-        color: enabled ? "#28a745" : "#6c757d",
-    });
+    const mode = await readDisplayMode();
+    const badge = MODE_BADGES[mode] ?? MODE_BADGES.off;
+    chrome.action.setBadgeText({ text: badge.text });
+    chrome.action.setBadgeBackgroundColor({ color: badge.color });
 }
 /** Ensure the context menu item exists (safe to call repeatedly). */
 function createContextMenu() {
@@ -37,8 +41,8 @@ function createContextMenu() {
     }
 }
 function handleStorageChange(changes, area) {
-    if (area === "sync" && changes[PW_TOGGLE_KEY]) {
-        console.log("Worms toggle changed:", changes[PW_TOGGLE_KEY].newValue);
+    if (area === "sync" && changes[DISPLAY_MODE_KEY]) {
+        console.log("Worms display mode changed:", changes[DISPLAY_MODE_KEY].newValue);
         void updateActionUI();
     }
 }
@@ -55,10 +59,10 @@ async function handleContextMenuClick(info, tab) {
         // Content script may not be injected; ignore.
     }
 }
-/** Wire up storage/tab listeners and bootstrap the ON/OFF toggle. */
+/** Wire up storage/tab listeners and bootstrap the display mode. */
 export function registerWormModuleHandlers() {
     chrome.runtime.onInstalled.addListener(async () => {
-        await ensureWormsToggle();
+        await ensureDisplayMode();
         createContextMenu();
     });
     chrome.runtime.onStartup?.addListener(createContextMenu);

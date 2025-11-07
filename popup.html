@@ -16,9 +16,24 @@
 
     <button id="loginBtn" type="button">Log In</button>
 
-    <label id="on-off-toggle" style="display: none;">
-      <input id="toggle" type="checkbox" />
-      See Worms
-    </label>
+    <fieldset id="modeSection" class="mode-section" style="display: none;">
+      <legend>Display Worms</legend>
+      <label class="mode-option">
+        <input type="radio" name="wormMode" value="off" checked />
+        Off
+      </label>
+      <label class="mode-option">
+        <input type="radio" name="wormMode" value="private" />
+        Private
+      </label>
+      <label class="mode-option">
+        <input type="radio" name="wormMode" value="friends" />
+        Friends
+      </label>
+      <label class="mode-option">
+        <input type="radio" name="wormMode" value="public" />
+        Public
+      </label>
+    </fieldset>
   </body>
 </html>

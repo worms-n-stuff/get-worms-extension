@@ -1,34 +1,53 @@
 /**
  * shared/toggles.ts
  * -----------------------------------------------------------------------------
- * Central helpers for the PageWorms ON/OFF toggle that lives in chrome.storage.
+ * Central helpers for the PageWorms display mode that lives in chrome.storage.
  */
-export const PW_TOGGLE_KEY = "pw_enabled";
-/** Ensure the toggle has an initialized value (defaults to false) and return it. */
-export async function ensureWormsToggle(defaultValue = false) {
-    try {
-        const result = await chrome.storage.sync.get(PW_TOGGLE_KEY);
-        if (result?.[PW_TOGGLE_KEY] === undefined) {
-            await chrome.storage.sync.set({ [PW_TOGGLE_KEY]: defaultValue });
-            return defaultValue;
+export const DISPLAY_MODES = [
+    "off",
+    "private",
+    "friends",
+    "public",
+];
+export const DISPLAY_MODE_KEY = "pw_display_mode";
+function normalizeMode(value) {
+    if (typeof value === "string") {
+        const normalized = value.toLowerCase();
+        if (DISPLAY_MODES.includes(normalized)) {
+            return normalized;
         }
-        return Boolean(result[PW_TOGGLE_KEY]);
+        // Legacy alias support (old "mine" option)
+        if (normalized === "mine")
+            return "private";
     }
-    catch {
-        return defaultValue;
-    }
+    return null;
 }
-/** Read the current toggle value (falls back to false on errors). */
-export async function readWormsToggle() {
+/** Ensure the display mode exists (defaults to "off") and return it. */
+export async function ensureDisplayMode(defaultMode = "off") {
     try {
-        const result = await chrome.storage.sync.get(PW_TOGGLE_KEY);
-        return Boolean(result?.[PW_TOGGLE_KEY]);
+        const result = await chrome.storage.sync.get(DISPLAY_MODE_KEY);
+        const stored = normalizeMode(result?.[DISPLAY_MODE_KEY]);
+        if (!stored) {
+            await chrome.storage.sync.set({ [DISPLAY_MODE_KEY]: defaultMode });
+            return defaultMode;
+        }
+        return stored;
     }
     catch {
-        return false;
+        return defaultMode;
     }
 }
-/** Persist the toggle value. */
-export async function writeWormsToggle(enabled) {
-    await chrome.storage.sync.set({ [PW_TOGGLE_KEY]: enabled });
+/** Read the current display mode (falls back to "off" on errors). */
+export async function readDisplayMode() {
+    try {
+        const result = await chrome.storage.sync.get(DISPLAY_MODE_KEY);
+        return normalizeMode(result?.[DISPLAY_MODE_KEY]) ?? "off";
+    }
+    catch {
+        return "off";
+    }
+}
+/** Persist the display mode. */
+export async function writeDisplayMode(mode) {
+    await chrome.storage.sync.set({ [DISPLAY_MODE_KEY]: mode });
 }

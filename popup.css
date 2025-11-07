@@ -32,7 +32,8 @@
 
 @font-face {
   font-family: "Source Code Pro";
-  src: url("fonts/Source_Code_Pro/SourceCodePro-VariableFont_wght.ttf") format("truetype");
+  src: url("fonts/Source_Code_Pro/SourceCodePro-VariableFont_wght.ttf")
+    format("truetype");
   font-weight: 200 900;
   font-style: normal;
   font-display: swap;
@@ -40,7 +41,8 @@
 
 @font-face {
   font-family: "Source Code Pro";
-  src: url("fonts/Source_Code_Pro/SourceCodePro-Italic-VariableFont_wght.ttf") format("truetype");
+  src: url("fonts/Source_Code_Pro/SourceCodePro-Italic-VariableFont_wght.ttf")
+    format("truetype");
   font-weight: 200 900;
   font-style: italic;
   font-display: swap;
@@ -50,7 +52,8 @@
   --bg: #000000;
   --text: #ffffff;
   --accent: #82647d;
-  --font-mono: "Space Mono", "Source Code Pro", "Menlo", "Consolas", "Liberation Mono", monospace;
+  --font-mono: "Space Mono", "Source Code Pro", "Menlo", "Consolas",
+    "Liberation Mono", monospace;
 }
 
 body {
@@ -110,4 +113,55 @@ button {
 
 button:hover {
   opacity: 0.9;
+}
+
+.mode-section {
+  /* shape */
+  width: calc(100% - 30px);
+  border: 1px solid #2f2f2f;
+  border-radius: 6px;
+
+  /* inner */
+  padding: 6px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  /* position */
+  margin-left: 15px;
+  margin-right: 15px;
+}
+
+.mode-section legend {
+  /* font */
+  font-size: 0.75rem;
+  font-weight: 700;
+
+  /* inner */
+  padding: 0 4px;
+}
+
+.mode-option {
+  /* inner */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  /* user interaction */
+  cursor: pointer;
+}
+
+.mode-option input {
+  /* user interaction */
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.mode-hint {
+  /* position */
+  margin: 2px 0 0;
+
+  /* font */
+  font-size: 0.65rem;
+  color: #bcbcbc;
 }

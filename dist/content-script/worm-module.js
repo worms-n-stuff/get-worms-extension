@@ -1,7 +1,7 @@
 /**
  * content-script/worm-module.ts
  * -----------------------------------------------------------------------------
- * Injected into every page. Starts/stops PageWorms based on the toggle stored
+ * Injected into every page. Starts/stops PageWorms based on the display mode stored
  * in chrome.storage, tracks SPA navigations, and responds to "Add Worm" events
  * emitted by the background context menu handler.
  */
@@ -14,15 +14,15 @@
     const wormsReady = import(wormsModuleUrl).then((mod) => {
         attachPageWormsFn = mod.attachPageWorms;
     });
-    let readWormsToggle;
-    let PW_TOGGLE_KEY = "pw_enabled";
+    let readDisplayMode;
+    let DISPLAY_MODE_KEY = "pw_display_mode";
     // Load shared toggle helpers via web-accessible runtime URL.
     const togglesReady = import(chrome.runtime.getURL("dist/shared/toggles.js")).then((mod) => {
-        readWormsToggle = mod.readWormsToggle;
-        PW_TOGGLE_KEY = mod.PW_TOGGLE_KEY;
+        readDisplayMode = mod.readDisplayMode;
+        DISPLAY_MODE_KEY = mod.DISPLAY_MODE_KEY;
     });
     /* -------------------------------------------------------------------------- */
-    /*                            Init & On/Off Toggle                            */
+    /*                           Init & Display Mode                             */
     /* -------------------------------------------------------------------------- */
     // --- LIFECYCLE GUARDS -------------------------------------------------------
     /** Returns false once the extension tears down this execution context. */
@@ -71,7 +71,7 @@
     })();
     // Storage change handler (defined as a named fn so we can remove it on pagehide)
     function onStorageChange(changes, area) {
-        if (area === "sync" && changes[PW_TOGGLE_KEY]) {
+        if (area === "sync" && changes[DISPLAY_MODE_KEY]) {
             if (!isContextAlive())
                 return;
             ensureState();
@@ -79,20 +79,20 @@
     }
     chrome.storage.onChanged.addListener(onStorageChange);
     // --- SAFE STORAGE ACCESS ----------------------------------------------------
-    /** Read the worms toggle, tolerating invalidated contexts. */
-    async function getToggleSafe() {
+    /** Read the worms display mode, tolerating invalidated contexts. */
+    async function getDisplayModeSafe() {
         if (!isContextAlive())
-            return false;
+            return "off";
         try {
             await togglesReady;
             // Guard again inside the try in case context dies during the await.
-            const enabled = await readWormsToggle();
-            return enabled;
+            const mode = await readDisplayMode();
+            return mode;
         }
         catch {
             // If the context died mid-await, Chrome throws "Extension context invalidated"
-            // Swallow and treat as "disabled" for this dead page.
-            return false;
+            // Swallow and treat as "off" for this dead page.
+            return "off";
         }
     }
     // --- MAIN STATE MACHINE -----------------------------------------------------
@@ -116,10 +116,10 @@
         const inst = await ensureInstanceReady();
         if (!inst)
             return;
-        const enabled = await getToggleSafe();
+        const mode = await getDisplayModeSafe();
         if (!isContextAlive())
             return;
-        if (enabled) {
+        if (mode !== "off") {
             await inst.load();
             if (!isContextAlive())
                 return;
@@ -149,9 +149,9 @@
         const inst = await ensureInstanceReady();
         if (!inst)
             return;
-        const enabled = await getToggleSafe();
-        if (!enabled || !isContextAlive())
-            return; // respect the ON/OFF toggle
+        const mode = await getDisplayModeSafe();
+        if (mode === "off" || !isContextAlive())
+            return; // respect the display mode
         // Use the current DOM selection if any
         const sel = window.getSelection?.();
         const hasSelection = !!(sel && !sel.isCollapsed && sel.rangeCount > 0);

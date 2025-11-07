@@ -1,41 +1,66 @@
 /**
  * popup-logic/popup.ts
  * -----------------------------------------------------------------------------
- * Coordinates login status UI and the worms ON/OFF toggle within the popup.
+ * Coordinates login status UI and the worms display mode selector within the popup.
  */
 
 import { AUTH_MESSAGES } from "../shared/auth.js";
-import { readWormsToggle, writeWormsToggle } from "../shared/toggles.js";
+import {
+  readDisplayMode,
+  writeDisplayMode,
+  DISPLAY_MODES,
+  type WormDisplayMode,
+} from "../shared/toggles.js";
 
 const statusEl = document.getElementById("status");
 const loginBtn = document.getElementById("loginBtn");
 const statusRow = document.getElementById("statusRow");
-const toggleLabel = document.getElementById("on-off-toggle");
-const toggleEl = document.getElementById("toggle") as HTMLInputElement | null;
+const modeSection = document.getElementById("modeSection");
+const modeInputs = Array.from(
+  document.querySelectorAll<HTMLInputElement>("input[name='wormMode']")
+);
 
-let toggleInitialized = false;
+let modeInitialized = false;
 
 function setStatus(text: string): void {
   if (statusEl) statusEl.textContent = text;
 }
 
-/** Lazily bind the ON/OFF toggle and hydrate its initial state. */
-async function ensureToggleInitialized(): Promise<void> {
-  if (!toggleEl || toggleInitialized) return;
-  toggleInitialized = true;
-  try {
-    const enabled = await readWormsToggle();
-    toggleEl.checked = !!enabled;
-  } catch {
-    toggleEl.checked = false;
+function syncModeRadios(selected: WormDisplayMode): void {
+  for (const input of modeInputs) {
+    input.checked = input.value === selected;
   }
-  toggleEl.addEventListener("change", async () => {
-    try {
-      await writeWormsToggle(toggleEl.checked);
-    } catch {
-      // Keep the optimistic UI state; background listeners will correct it if needed.
-    }
-  });
+}
+
+/** Lazily bind the display mode radios and hydrate their initial state. */
+async function ensureModeControls(): Promise<void> {
+  if (modeInitialized) {
+    const latest = await readDisplayMode().catch(() => "off" as const);
+    syncModeRadios(latest);
+    return;
+  }
+  modeInitialized = true;
+  let initialMode: WormDisplayMode = "off";
+  try {
+    initialMode = await readDisplayMode();
+  } catch {
+    initialMode = "off";
+  }
+  syncModeRadios(initialMode);
+
+  for (const input of modeInputs) {
+    input.addEventListener("change", async () => {
+      if (!input.checked) return;
+      const next = input.value;
+      if (!DISPLAY_MODES.includes(next as WormDisplayMode)) return;
+      try {
+        await writeDisplayMode(next as WormDisplayMode);
+      } catch {
+        // Swallow storage errors; popup will try syncing on next open.
+        syncModeRadios(initialMode);
+      }
+    });
+  }
 }
 
 /** Ask the background worker for the login status and update the view. */
@@ -46,15 +71,16 @@ async function refreshStatus(): Promise<void> {
     });
     const loggedIn = Boolean(resp?.loggedIn);
     if (loggedIn) {
-      await ensureToggleInitialized();
+      await ensureModeControls();
       if (statusRow) statusRow.style.display = "none";
       if (loginBtn) loginBtn.style.display = "none";
-      if (toggleLabel) toggleLabel.style.display = "block";
+      if (modeSection) modeSection.style.display = "flex";
     } else {
       if (statusRow) statusRow.style.display = "flex";
       setStatus("Logged out");
       if (loginBtn) loginBtn.style.display = "inline-block";
-      if (toggleLabel) toggleLabel.style.display = "none";
+      if (modeSection) modeSection.style.display = "none";
+      modeInitialized = false;
     }
   } catch (err) {
     console.error("Failed to refresh login status:", err);
@@ -86,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === AUTH_MESSAGES.LOGIN_SUCCESS) {
     setStatus("Logged in");
-    void ensureToggleInitialized().then(() => refreshStatus());
+    void ensureModeControls().then(() => refreshStatus());
   }
 });
 
