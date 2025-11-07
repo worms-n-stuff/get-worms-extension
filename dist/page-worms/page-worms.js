@@ -11338,9 +11338,9 @@ if (shouldShowDeprecationWarning()) {
   console.warn(`\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217`);
 }
 
-// shared/config.ts
+// page-worms/storage/supabase/config.ts
 var SUPABASE_URL = "https://esigjbspljluwdtuvocg.supabase.co";
-var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzaWdqYnNwbGpsdXdkdHV2b2NnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4NTkxODcsImV4cCI6MjA3NTQzNTE4N30.bpmdQIW7fXzsGKp_QJdkN-s9T5guOdZiHxQK22sT3hM";
+var SUPABASE_ANON_KEY = "sb_publishable_bBFZ5UsoZu3kb-ZyZCZvJg_g_Cn9iPn";
 
 // shared/auth.ts
 var TRUSTED_LOGIN_ORIGINS = [
@@ -11351,7 +11351,7 @@ var SESSION_STORAGE_KEY = "gw_supabase_session";
 var HANDSHAKE_TTL_MS = 5 * 60 * 1e3;
 var LOGIN_ORIGIN = TRUSTED_LOGIN_ORIGINS[0];
 
-// shared/supabase-client.ts
+// page-worms/storage/supabase/supabase-client.ts
 var cachedClient = null;
 function ensureClient() {
   if (!cachedClient) {
@@ -11450,7 +11450,7 @@ async function readDisplayMode() {
   }
 }
 
-// page-worms/storage/supabase-adapter.ts
+// page-worms/storage/supabase/supabase-adapter.ts
 function createSupabaseStorageAdapter() {
   return new SupabaseStorageAdapter();
 }

@@ -8,10 +8,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getSupabaseConnection, requireSupabaseConnection } from "../../shared/supabase-client.js";
-import { readDisplayMode, type WormDisplayMode } from "../../shared/toggles.js";
-import type { WormFormData, WormRecord, WormStatus } from "../types.js";
-import type { StorageAdapter, WormDraft } from "./types.js";
+import { getSupabaseConnection, requireSupabaseConnection } from "./supabase-client.js";
+import { readDisplayMode, type WormDisplayMode } from "../../../shared/toggles.js";
+import type { WormFormData, WormRecord, WormStatus } from "../../types.js";
+import type { StorageAdapter, WormDraft } from "../types.js";
 
 type WormRow = {
   id: number | string;

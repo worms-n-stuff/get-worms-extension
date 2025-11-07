@@ -12,7 +12,7 @@
 import { DEFAULTS } from "../constants.js";
 import type { WormFormData, WormRecord } from "../types.js";
 import type { StorageAdapter, StorageOption, WormDraft } from "./types.js";
-import { createSupabaseStorageAdapter } from "./supabase-adapter.js";
+import { createSupabaseStorageAdapter } from "./supabase/supabase-adapter.js";
 
 function normalizeTags(tags: string[]): string[] | null {
   return tags && tags.length ? tags : null;

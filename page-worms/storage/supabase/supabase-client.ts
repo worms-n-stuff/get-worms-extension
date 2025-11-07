@@ -9,9 +9,9 @@
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { SESSION_STORAGE_KEY } from "./auth.js";
+import { SESSION_STORAGE_KEY } from "../../../shared/auth.js";
 
-export type StoredSupabaseSession = {
+type StoredSupabaseSession = {
   access_token: string;
   refresh_token: string;
   expires_at: number;
