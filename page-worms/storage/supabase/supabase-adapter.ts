@@ -42,11 +42,11 @@ export function createSupabaseStorageAdapter(): StorageAdapter {
 
 class SupabaseStorageAdapter implements StorageAdapter {
   async list(url: string): Promise<WormRecord[]> {
-    const connection = await getSupabaseConnection();
-    if (!connection) return [];
-
     const mode = await safeReadDisplayMode();
     if (mode === "off") return [];
+
+    const connection = await getSupabaseConnection();
+    if (!connection) return [];
 
     const profile = await fetchViewerProfile(connection.client, connection.session.user.id);
     if (!profile || !profile.idNumber) return [];
